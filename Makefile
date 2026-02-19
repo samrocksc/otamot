@@ -1,6 +1,23 @@
-.PHONY: build run clean release install help
+.PHONY: build run clean release install help all
 
-# Default target
+# Default target - show help
+all help:
+	@echo "Pomodoro Timer - Makefile"
+	@echo ""
+	@echo "Available targets:"
+	@echo "  make         - Show this help message"
+	@echo "  make build   - Build the project (debug)"
+	@echo "  make run     - Build and run the project (debug)"
+	@echo "  make release - Build the project (release)"
+	@echo "  make run-release - Build and run the project (release)"
+	@echo "  make clean   - Clean build artifacts"
+	@echo "  make deps    - Install dependencies"
+	@echo "  make test    - Run tests"
+	@echo "  make lint    - Run clippy linter"
+	@echo "  make fmt     - Format code"
+	@echo "  make check-fmt - Check code formatting"
+
+# Build the project (debug)
 build:
 	cargo build
 
@@ -39,20 +56,3 @@ fmt:
 # Check formatting
 check-fmt:
 	cargo fmt --check
-
-# Help
-help:
-	@echo "Pomodoro Timer - Makefile"
-	@echo ""
-	@echo "Available targets:"
-	@echo "  build        - Build the project (debug)"
-	@echo "  run          - Build and run the project (debug)"
-	@echo "  release      - Build the project (release)"
-	@echo "  run-release  - Build and run the project (release)"
-	@echo "  clean        - Clean build artifacts"
-	@echo "  deps         - Install dependencies"
-	@echo "  test         - Run tests"
-	@echo "  lint         - Run clippy linter"
-	@echo "  fmt          - Format code"
-	@echo "  check-fmt    - Check code formatting"
-	@echo "  help         - Show this help message"
