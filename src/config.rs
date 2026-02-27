@@ -18,25 +18,31 @@ pub enum NotesView {
 pub struct Config {
     #[serde(default = "default_work_duration")]
     pub work_duration: u32,
-    
+
     #[serde(default = "default_break_duration")]
     pub break_duration: u32,
-    
+
     #[serde(default = "default_notes_directory")]
     pub notes_directory: String,
-    
+
     #[serde(default)]
     pub notes_enabled: bool,
-    
+
     #[serde(default = "default_survey_enabled")]
     pub survey_enabled: bool,
 }
 
-fn default_survey_enabled() -> bool { true }
+fn default_survey_enabled() -> bool {
+    true
+}
 
-fn default_work_duration() -> u32 { 25 }
-fn default_break_duration() -> u32 { 5 }
-fn default_notes_directory() -> String { 
+fn default_work_duration() -> u32 {
+    25
+}
+fn default_break_duration() -> u32 {
+    5
+}
+fn default_notes_directory() -> String {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     format!("{}/.config/otamot/notes", home)
 }
@@ -70,11 +76,11 @@ impl Config {
     /// Save configuration to file
     pub fn save(&self) -> io::Result<()> {
         let path = Self::config_path();
-        
+
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        
+
         let content = serde_json::to_string_pretty(self)?;
         fs::write(&path, content)?;
         Ok(())
@@ -85,7 +91,7 @@ impl Config {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        
+
         let content = serde_json::to_string_pretty(self)?;
         fs::write(path, content)?;
         Ok(())
@@ -108,7 +114,7 @@ impl Config {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
         PathBuf::from(home).join(".config/otamot/settings.json")
     }
-    
+
     /// Get the notes directory path
     #[allow(dead_code)]
     pub fn notes_path(&self) -> PathBuf {
@@ -145,7 +151,7 @@ mod tests {
             notes_enabled: true,
             survey_enabled: true,
         };
-        
+
         let json = serde_json::to_string(&config).unwrap();
         // Parse it back to verify the values
         let parsed: Config = serde_json::from_str(&json).unwrap();
@@ -165,7 +171,7 @@ mod tests {
             "notes_enabled": true,
             "survey_enabled": false
         }"#;
-        
+
         let config: Config = serde_json::from_str(json).unwrap();
         assert_eq!(config.work_duration, 45);
         assert_eq!(config.break_duration, 15);
@@ -180,7 +186,7 @@ mod tests {
         let json = r#"{
             "work_duration": 20
         }"#;
-        
+
         let config: Config = serde_json::from_str(json).unwrap();
         assert_eq!(config.work_duration, 20);
         assert_eq!(config.break_duration, 5); // default
@@ -201,7 +207,7 @@ mod tests {
     fn test_config_save_and_load() {
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("settings.json");
-        
+
         let config = Config {
             work_duration: 40,
             break_duration: 10,
@@ -209,10 +215,10 @@ mod tests {
             notes_enabled: true,
             survey_enabled: true,
         };
-        
+
         config.save_to_path(&config_path).unwrap();
         assert!(config_path.exists());
-        
+
         let loaded = Config::load_from_path(&config_path);
         assert_eq!(loaded.work_duration, 40);
         assert_eq!(loaded.break_duration, 10);
@@ -225,7 +231,7 @@ mod tests {
     fn test_config_load_nonexistent_file() {
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("nonexistent.json");
-        
+
         let loaded = Config::load_from_path(&config_path);
         assert_eq!(loaded.work_duration, 25); // default
         assert_eq!(loaded.break_duration, 5); // default
@@ -235,9 +241,9 @@ mod tests {
     fn test_config_load_invalid_json() {
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("invalid.json");
-        
+
         fs::write(&config_path, "not valid json {{{").unwrap();
-        
+
         let loaded = Config::load_from_path(&config_path);
         // Should return default on parse error
         assert_eq!(loaded.work_duration, 25);
@@ -248,10 +254,10 @@ mod tests {
     fn test_config_save_creates_directory() {
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("nested/dir/settings.json");
-        
+
         let config = Config::default();
         config.save_to_path(&config_path).unwrap();
-        
+
         assert!(config_path.exists());
         assert!(config_path.parent().unwrap().exists());
     }

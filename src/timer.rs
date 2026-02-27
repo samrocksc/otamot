@@ -1,5 +1,5 @@
 //! Timer logic for the Pomodoro app
-//! 
+//!
 //! This module contains the core timer functionality, extracted for testability.
 
 use std::time::Instant;
@@ -154,7 +154,7 @@ mod tests {
     #[test]
     fn test_format_time_typical_durations() {
         assert_eq!(format_time(25 * 60), "25:00"); // Work duration
-        assert_eq!(format_time(5 * 60), "05:00");  // Break duration
+        assert_eq!(format_time(5 * 60), "05:00"); // Break duration
         assert_eq!(format_time(15 * 60), "15:00"); // Long break
     }
 
@@ -195,11 +195,11 @@ mod tests {
     fn test_timer_toggle() {
         let mut state = TimerState::default();
         assert!(!state.is_running);
-        
+
         state.toggle();
         assert!(state.is_running);
         assert!(state.last_tick.is_some());
-        
+
         state.toggle();
         assert!(!state.is_running);
     }
@@ -211,9 +211,9 @@ mod tests {
         state.remaining_seconds = 100;
         state.mode = TimerMode::Break;
         state.sessions_completed = 5;
-        
+
         state.reset(25);
-        
+
         assert!(!state.is_running);
         assert_eq!(state.mode, TimerMode::Work);
         assert_eq!(state.remaining_seconds, 25 * 60);
@@ -225,9 +225,9 @@ mod tests {
     fn test_timer_skip_to_break() {
         let mut state = TimerState::default();
         state.toggle();
-        
+
         state.skip_to_break(5);
-        
+
         assert_eq!(state.mode, TimerMode::Break);
         assert_eq!(state.remaining_seconds, 5 * 60);
         assert!(!state.is_running);
@@ -238,9 +238,9 @@ mod tests {
     fn test_timer_tick_not_running() {
         let mut state = TimerState::default();
         let initial_seconds = state.remaining_seconds;
-        
+
         let transitioned = state.tick(25, 5);
-        
+
         assert!(!transitioned);
         assert_eq!(state.remaining_seconds, initial_seconds);
     }
@@ -250,9 +250,9 @@ mod tests {
         let mut state = TimerState::default();
         state.is_running = true;
         let initial_seconds = state.remaining_seconds;
-        
+
         let transitioned = state.tick(25, 5);
-        
+
         assert!(!transitioned);
         assert_eq!(state.remaining_seconds, initial_seconds - 1);
     }
@@ -263,9 +263,9 @@ mod tests {
         state.mode = TimerMode::Work;
         state.remaining_seconds = 0;
         state.is_running = true;
-        
+
         let transitioned = state.tick(25, 5);
-        
+
         assert!(transitioned);
         assert_eq!(state.mode, TimerMode::Break);
         assert_eq!(state.remaining_seconds, 5 * 60);
@@ -279,9 +279,9 @@ mod tests {
         state.remaining_seconds = 0;
         state.is_running = true;
         state.sessions_completed = 3;
-        
+
         let transitioned = state.tick(25, 5);
-        
+
         assert!(transitioned);
         assert_eq!(state.mode, TimerMode::Work);
         assert_eq!(state.remaining_seconds, 25 * 60);
@@ -292,19 +292,19 @@ mod tests {
     fn test_timer_multiple_sessions() {
         let mut state = TimerState::default();
         state.is_running = true;
-        
+
         // Simulate completing a work session
         state.remaining_seconds = 0;
         let _ = state.tick(25, 5);
         assert_eq!(state.sessions_completed, 1);
         assert_eq!(state.mode, TimerMode::Break);
-        
+
         // Simulate completing a break
         state.remaining_seconds = 0;
         let _ = state.tick(25, 5);
         assert_eq!(state.sessions_completed, 1);
         assert_eq!(state.mode, TimerMode::Work);
-        
+
         // Another work session
         state.remaining_seconds = 0;
         let _ = state.tick(25, 5);
@@ -315,10 +315,10 @@ mod tests {
     fn test_timer_advance_by() {
         let mut state = TimerState::default();
         state.remaining_seconds = 100;
-        
+
         state.advance_by(30);
         assert_eq!(state.remaining_seconds, 70);
-        
+
         state.advance_by(100);
         assert_eq!(state.remaining_seconds, 0);
     }

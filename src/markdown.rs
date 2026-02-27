@@ -1,25 +1,30 @@
 //! Markdown processing for the Pomodoro app
-//! 
+//!
 //! This module contains markdown formatting logic, extracted for testability.
 
 /// Process inline markdown formatting
 /// Returns text with markdown syntax simplified for display
 pub fn format_inline_markdown(text: &str) -> String {
     let mut result = text.to_string();
-    
+
     // Handle inline code `code`
     while let Some(start) = result.find('`') {
-        if let Some(end) = result[start+1..].find('`') {
-            let code = &result[start+1..start+1+end];
-            result = format!("{}[{}]{}", &result[..start], code, &result[start+1+end+1..]);
+        if let Some(end) = result[start + 1..].find('`') {
+            let code = &result[start + 1..start + 1 + end];
+            result = format!(
+                "{}[{}]{}",
+                &result[..start],
+                code,
+                &result[start + 1 + end + 1..]
+            );
         } else {
             break;
         }
     }
-    
+
     // Remove bold markers but keep text
     result = result.replace("**", "");
-    
+
     result
 }
 
@@ -42,7 +47,7 @@ pub enum MarkdownLine {
 /// Parse a single line of markdown
 pub fn parse_markdown_line(line: &str, in_code_block: &mut bool) -> MarkdownLine {
     let trimmed = line.trim();
-    
+
     // Handle code blocks
     if trimmed.starts_with("```") {
         if *in_code_block {
@@ -62,17 +67,19 @@ pub fn parse_markdown_line(line: &str, in_code_block: &mut bool) -> MarkdownLine
         MarkdownLine::Heading3(trimmed.strip_prefix("### ").unwrap_or(trimmed).to_string())
     } else if line.starts_with("  - ") || line.starts_with("  * ") {
         // Check original line for indentation (sub-bullets have 2-space indent)
-        let content = trimmed.strip_prefix("- ")
+        let content = trimmed
+            .strip_prefix("- ")
             .or_else(|| trimmed.strip_prefix("* "))
             .unwrap_or(trimmed);
         MarkdownLine::SubBulletPoint(content.to_string())
     } else if trimmed.starts_with("- ") || trimmed.starts_with("* ") {
-        let content = trimmed.strip_prefix("- ")
+        let content = trimmed
+            .strip_prefix("- ")
             .or_else(|| trimmed.strip_prefix("* "))
             .unwrap_or(trimmed);
         MarkdownLine::BulletPoint(content.to_string())
     } else if trimmed.starts_with("**") && trimmed.ends_with("**") && trimmed.len() > 4 {
-        let bold_text = trimmed[2..trimmed.len()-2].to_string();
+        let bold_text = trimmed[2..trimmed.len() - 2].to_string();
         MarkdownLine::Bold(bold_text)
     } else if trimmed.is_empty() {
         MarkdownLine::EmptyLine
@@ -84,7 +91,8 @@ pub fn parse_markdown_line(line: &str, in_code_block: &mut bool) -> MarkdownLine
 /// Parse full markdown content into lines
 pub fn parse_markdown(content: &str) -> Vec<MarkdownLine> {
     let mut in_code_block = false;
-    content.lines()
+    content
+        .lines()
         .map(|line| parse_markdown_line(line, &mut in_code_block))
         .collect()
 }
@@ -99,19 +107,28 @@ mod tests {
     fn test_format_inline_code() {
         assert_eq!(format_inline_markdown("`hello`"), "[hello]");
         assert_eq!(format_inline_markdown("use `foo` here"), "use [foo] here");
-        assert_eq!(format_inline_markdown("`code` and `more`"), "[code] and [more]");
+        assert_eq!(
+            format_inline_markdown("`code` and `more`"),
+            "[code] and [more]"
+        );
     }
 
     #[test]
     fn test_format_inline_bold() {
         assert_eq!(format_inline_markdown("**bold**"), "bold");
-        assert_eq!(format_inline_markdown("this is **important**"), "this is important");
+        assert_eq!(
+            format_inline_markdown("this is **important**"),
+            "this is important"
+        );
         assert_eq!(format_inline_markdown("**a** and **b**"), "a and b");
     }
 
     #[test]
     fn test_format_inline_bold_and_code() {
-        assert_eq!(format_inline_markdown("`code` and **bold**"), "[code] and bold");
+        assert_eq!(
+            format_inline_markdown("`code` and **bold**"),
+            "[code] and bold"
+        );
         assert_eq!(format_inline_markdown("**use `var`**"), "use [var]");
     }
 
@@ -194,7 +211,7 @@ mod tests {
         let mut in_code = false;
         let result = parse_markdown_line("", &mut in_code);
         assert_eq!(result, MarkdownLine::EmptyLine);
-        
+
         let result = parse_markdown_line("   ", &mut in_code);
         assert_eq!(result, MarkdownLine::EmptyLine);
     }
@@ -203,7 +220,10 @@ mod tests {
     fn test_parse_paragraph() {
         let mut in_code = false;
         let result = parse_markdown_line("Just some text", &mut in_code);
-        assert_eq!(result, MarkdownLine::Paragraph("Just some text".to_string()));
+        assert_eq!(
+            result,
+            MarkdownLine::Paragraph("Just some text".to_string())
+        );
     }
 
     #[test]
@@ -242,13 +262,16 @@ Some paragraph text.
 ## Section
 
 More text."#;
-        
+
         let lines = parse_markdown(content);
         // Lines: Title, empty, paragraph, empty, item1, item2, empty, section, empty, text = 10 lines
         assert_eq!(lines.len(), 10);
         assert_eq!(lines[0], MarkdownLine::Heading1("Title".to_string()));
         assert_eq!(lines[1], MarkdownLine::EmptyLine);
-        assert_eq!(lines[2], MarkdownLine::Paragraph("Some paragraph text.".to_string()));
+        assert_eq!(
+            lines[2],
+            MarkdownLine::Paragraph("Some paragraph text.".to_string())
+        );
         assert_eq!(lines[3], MarkdownLine::EmptyLine);
         assert_eq!(lines[4], MarkdownLine::BulletPoint("Item 1".to_string()));
         assert_eq!(lines[5], MarkdownLine::BulletPoint("Item 2".to_string()));
@@ -263,7 +286,7 @@ fn main() {
     println!("hello");
 }
 ```"#;
-        
+
         let lines = parse_markdown(content);
         assert_eq!(lines.len(), 5);
         assert!(matches!(lines[0], MarkdownLine::CodeBlockStart(_)));
