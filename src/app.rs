@@ -519,21 +519,20 @@ impl eframe::App for PomodoroApp {
                         
                         match self.notes_view {
                             NotesView::Edit => {
+                                // Request focus at the beginning of the frame if flag is set
+                                if self.focus_notes_input {
+                                    ctx.memory_mut(|mem| mem.request_focus(egui::Id::new("notes_text_input")));
+                                    self.focus_notes_input = false;
+                                }
+                                
                                 egui::ScrollArea::vertical().show(ui, |ui| {
-                                    let mut text_edit = egui::TextEdit::multiline(&mut self.notes_content)
-                                        .desired_width(400.0)
-                                        .desired_rows(15)
-                                        .font(egui::TextStyle::Monospace);
-                                    
-                                    // Request focus if flag is set
-                                    if self.focus_notes_input {
-                                        text_edit = text_edit.id(ui.auto_id_with("notes_input"));
-                                        ui.add(text_edit);
-                                        ui.memory_mut(|mem| mem.request_focus(ui.auto_id_with("notes_input")));
-                                        self.focus_notes_input = false;
-                                    } else {
-                                        ui.add(text_edit);
-                                    }
+                                    ui.add(
+                                        egui::TextEdit::multiline(&mut self.notes_content)
+                                            .id(egui::Id::new("notes_text_input"))
+                                            .desired_width(400.0)
+                                            .desired_rows(15)
+                                            .font(egui::TextStyle::Monospace)
+                                    );
                                 });
                             }
                             NotesView::Preview => {
