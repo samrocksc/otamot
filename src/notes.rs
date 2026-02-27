@@ -1,5 +1,5 @@
 //! Notes management for the Pomodoro app
-//! 
+//!
 //! This module contains notes-related functionality including
 //! frontmatter generation and filename formatting.
 
@@ -71,12 +71,12 @@ pub fn generate_filename(start: DateTime<Local>, end: DateTime<Local>) -> String
 pub fn parse_filename(filename: &str) -> Option<(DateTime<Local>, DateTime<Local>)> {
     // Expected format: MM-DD-YYYY-HH-MM-HH-MM.md
     let basename = filename.strip_suffix(".md")?;
-    
+
     let parts: Vec<&str> = basename.split('-').collect();
     if parts.len() != 7 {
         return None;
     }
-    
+
     // Parse: MM-DD-YYYY-HH-MM-HH-MM
     let month: u32 = parts[0].parse().ok()?;
     let day: u32 = parts[1].parse().ok()?;
@@ -85,10 +85,14 @@ pub fn parse_filename(filename: &str) -> Option<(DateTime<Local>, DateTime<Local
     let start_minute: u32 = parts[4].parse().ok()?;
     let end_hour: u32 = parts[5].parse().ok()?;
     let end_minute: u32 = parts[6].parse().ok()?;
-    
-    let start = Local.with_ymd_and_hms(year, month, day, start_hour, start_minute, 0).single()?;
-    let end = Local.with_ymd_and_hms(year, month, day, end_hour, end_minute, 0).single()?;
-    
+
+    let start = Local
+        .with_ymd_and_hms(year, month, day, start_hour, start_minute, 0)
+        .single()?;
+    let end = Local
+        .with_ymd_and_hms(year, month, day, end_hour, end_minute, 0)
+        .single()?;
+
     Some((start, end))
 }
 
@@ -96,13 +100,13 @@ pub fn parse_filename(filename: &str) -> Option<(DateTime<Local>, DateTime<Local
 pub fn save_note(directory: &str, filename: &str, content: &str) -> std::io::Result<()> {
     use std::fs;
     use std::path::Path;
-    
+
     let dir_path = Path::new(directory);
     fs::create_dir_all(dir_path)?;
-    
+
     let filepath = dir_path.join(filename);
     fs::write(filepath, content)?;
-    
+
     Ok(())
 }
 
@@ -111,15 +115,24 @@ mod tests {
     use super::*;
     use chrono::{Datelike, Timelike};
 
-    fn create_test_datetime(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> DateTime<Local> {
-        Local.with_ymd_and_hms(year, month, day, hour, minute, 0).single().unwrap()
+    fn create_test_datetime(
+        year: i32,
+        month: u32,
+        day: u32,
+        hour: u32,
+        minute: u32,
+    ) -> DateTime<Local> {
+        Local
+            .with_ymd_and_hms(year, month, day, hour, minute, 0)
+            .single()
+            .unwrap()
     }
 
     #[test]
     fn test_generate_filename_basic() {
         let start = create_test_datetime(2024, 2, 27, 10, 30);
         let end = create_test_datetime(2024, 2, 27, 10, 55);
-        
+
         let filename = generate_filename(start, end);
         assert_eq!(filename, "02-27-2024-10-30-10-55.md");
     }
@@ -128,7 +141,7 @@ mod tests {
     fn test_generate_filename_with_padding() {
         let start = create_test_datetime(2024, 1, 5, 9, 5);
         let end = create_test_datetime(2024, 1, 5, 9, 30);
-        
+
         let filename = generate_filename(start, end);
         assert_eq!(filename, "01-05-2024-09-05-09-30.md");
     }
@@ -137,7 +150,7 @@ mod tests {
     fn test_generate_filename_midnight() {
         let start = create_test_datetime(2024, 12, 31, 23, 45);
         let end = create_test_datetime(2024, 12, 31, 0, 10);
-        
+
         let filename = generate_filename(start, end);
         assert_eq!(filename, "12-31-2024-23-45-00-10.md");
     }
@@ -146,7 +159,7 @@ mod tests {
     fn test_parse_filename_valid() {
         let result = parse_filename("02-27-2024-10-30-10-55.md");
         assert!(result.is_some());
-        
+
         let (start, end) = result.unwrap();
         assert_eq!(start.year(), 2024);
         assert_eq!(start.month(), 2);
@@ -161,7 +174,7 @@ mod tests {
     fn test_parse_filename_padded() {
         let result = parse_filename("01-05-2024-09-05-09-30.md");
         assert!(result.is_some());
-        
+
         let (start, end) = result.unwrap();
         assert_eq!(start.month(), 1);
         assert_eq!(start.day(), 5);
@@ -196,7 +209,7 @@ mod tests {
     fn test_generate_frontmatter_work() {
         let start = create_test_datetime(2024, 2, 27, 10, 0);
         let end = create_test_datetime(2024, 2, 27, 10, 25);
-        
+
         let meta = NoteMetadata {
             start_time: start,
             end_time: end,
@@ -204,9 +217,9 @@ mod tests {
             mode: NoteMode::Work,
             sessions_completed: 3,
         };
-        
+
         let frontmatter = generate_frontmatter(&meta);
-        
+
         assert!(frontmatter.starts_with("---\n"));
         assert!(frontmatter.contains("title: \"Pomodoro Session\""));
         assert!(frontmatter.contains("date: 2024-02-27 10:25:00"));
@@ -224,7 +237,7 @@ mod tests {
     fn test_generate_frontmatter_break() {
         let start = create_test_datetime(2024, 2, 27, 10, 25);
         let end = create_test_datetime(2024, 2, 27, 10, 30);
-        
+
         let meta = NoteMetadata {
             start_time: start,
             end_time: end,
@@ -232,9 +245,9 @@ mod tests {
             mode: NoteMode::Break,
             sessions_completed: 1,
         };
-        
+
         let frontmatter = generate_frontmatter(&meta);
-        
+
         assert!(frontmatter.contains("mode: break"));
         assert!(frontmatter.contains("- break"));
         assert!(frontmatter.contains("sessions_completed: 1"));
@@ -244,7 +257,7 @@ mod tests {
     fn test_frontmatter_content_combination() {
         let start = create_test_datetime(2024, 2, 27, 9, 0);
         let end = create_test_datetime(2024, 2, 27, 9, 25);
-        
+
         let meta = NoteMetadata {
             start_time: start,
             end_time: end,
@@ -252,10 +265,13 @@ mod tests {
             mode: NoteMode::Work,
             sessions_completed: 0,
         };
-        
+
         let frontmatter = generate_frontmatter(&meta);
-        let content = format!("{}{}", frontmatter, "# My Notes\n\nThis is my work session.");
-        
+        let content = format!(
+            "{}{}",
+            frontmatter, "# My Notes\n\nThis is my work session."
+        );
+
         assert!(content.starts_with("---\n"));
         assert!(content.contains("# My Notes"));
         assert!(content.contains("This is my work session."));
@@ -277,21 +293,21 @@ mod tests {
     #[test]
     fn test_save_note() {
         use tempfile::TempDir;
-        
+
         let temp_dir = TempDir::new().unwrap();
         let dir_path = temp_dir.path().to_str().unwrap();
-        
+
         let result = save_note(
             dir_path,
             "test-note.md",
-            "# Test Note\n\nThis is test content."
+            "# Test Note\n\nThis is test content.",
         );
-        
+
         assert!(result.is_ok());
-        
+
         let filepath = temp_dir.path().join("test-note.md");
         assert!(filepath.exists());
-        
+
         let content = std::fs::read_to_string(filepath).unwrap();
         assert!(content.contains("# Test Note"));
         assert!(content.contains("This is test content."));
@@ -300,17 +316,13 @@ mod tests {
     #[test]
     fn test_save_note_creates_directory() {
         use tempfile::TempDir;
-        
+
         let temp_dir = TempDir::new().unwrap();
         let nested_dir = temp_dir.path().join("nested/notes/dir");
         let dir_path = nested_dir.to_str().unwrap();
-        
-        let result = save_note(
-            dir_path,
-            "test-note.md",
-            "Test content"
-        );
-        
+
+        let result = save_note(dir_path, "test-note.md", "Test content");
+
         assert!(result.is_ok());
         assert!(nested_dir.exists());
     }
