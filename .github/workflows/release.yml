@@ -69,13 +69,72 @@ jobs:
       - name: Strip binary
         run: strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
 
+      - name: Create macOS .app bundle
+        if: matrix.os == 'macos-latest'
+        run: |
+          # Create .app bundle structure
+          mkdir -p Otamot.app/Contents/MacOS
+          mkdir -p Otamot.app/Contents/Resources
+          
+          # Copy binary
+          cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} Otamot.app/Contents/MacOS/
+          
+          # Copy icon
+          cp assets/icons/icon.icns Otamot.app/Contents/Resources/
+          
+          # Create Info.plist
+          cat > Otamot.app/Contents/Info.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleDevelopmentRegion</key>
+              <string>en</string>
+              <key>CFBundleExecutable</key>
+              <string>otamot</string>
+              <key>CFBundleIconFile</key>
+              <string>icon</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.otamot.app</string>
+              <key>CFBundleInfoDictionaryVersion</key>
+              <string>6.0</string>
+              <key>CFBundleName</key>
+              <string>Otamot</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleShortVersionString</key>
+              <string>1.0</string>
+              <key>CFBundleVersion</key>
+              <string>1</string>
+              <key>LSMinimumSystemVersion</key>
+              <string>10.15</string>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+              <key>NSPrincipalClass</key>
+              <string>NSApplication</string>
+          </dict>
+          </plist>
+          EOF
+          
+          # Create archive from .app bundle
+          zip -r ${{ matrix.asset_name }}.zip Otamot.app
+
       - name: Create archive
+        if: matrix.os != 'macos-latest'
         run: |
           cd target/${{ matrix.target }}/release
           tar -czvf ${{ matrix.asset_name }}.tar.gz ${{ matrix.artifact_name }}
           mv ${{ matrix.asset_name }}.tar.gz ../../../
 
-      - name: Upload artifact
+      - name: Upload artifact (macOS)
+        if: matrix.os == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: ${{ matrix.asset_name }}.zip
+
+      - name: Upload artifact (Linux)
+        if: matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset_name }}
@@ -100,5 +159,12 @@ jobs:
           files: artifacts/**/*.tar.gz
           generate_release_notes: true
           prerelease: ${{ contains(github.ref, 'beta') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Release (macOS .app)
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/**/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

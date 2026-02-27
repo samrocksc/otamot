@@ -416,16 +416,15 @@ tags:
 impl eframe::App for PomodoroApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Handle Ctrl+P hotkey to toggle Edit/Preview
-        if ctx.input(|i| i.key_pressed(egui::Key::P) && i.modifiers.ctrl)
-            && self.notes_enabled {
-                self.notes_view = match self.notes_view {
-                    NotesView::Edit => NotesView::Preview,
-                    NotesView::Preview => {
-                        self.focus_notes_input = true; // Request focus when switching to Edit
-                        NotesView::Edit
-                    }
-                };
-            }
+        if ctx.input(|i| i.key_pressed(egui::Key::P) && i.modifiers.ctrl) && self.notes_enabled {
+            self.notes_view = match self.notes_view {
+                NotesView::Edit => NotesView::Preview,
+                NotesView::Preview => {
+                    self.focus_notes_input = true; // Request focus when switching to Edit
+                    NotesView::Edit
+                }
+            };
+        }
 
         // Tick the timer
         self.tick();

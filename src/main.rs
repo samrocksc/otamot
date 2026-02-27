@@ -1,3 +1,6 @@
+// Hide console window on Windows when launching the GUI
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+
 use eframe::egui;
 use eframe::egui::IconData;
 
