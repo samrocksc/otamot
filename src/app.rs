@@ -766,6 +766,7 @@ impl eframe::App for PomodoroApp {
             egui::Window::new("Settings")
                 .collapsible(false)
                 .resizable(false)
+                .constrain(false)
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                 .show(ctx, |ui| {
                     ui.set_min_width(350.0);
@@ -900,6 +901,7 @@ impl eframe::App for PomodoroApp {
             egui::Window::new("Session Complete! 🎉")
                 .collapsible(false)
                 .resizable(false)
+                .constrain(false)
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                 .show(ctx, |ui| {
                     ui.set_min_width(400.0);
