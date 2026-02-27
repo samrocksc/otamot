@@ -5,6 +5,7 @@ use chrono::Local;
 // Since app.rs is included from main.rs, we use otamot:: for library imports
 use otamot::config::{Config, NotesView};
 use otamot::timer::TimerMode;
+use otamot::survey::SurveyData;
 
 pub struct PomodoroApp {
     // Timer state
@@ -32,12 +33,20 @@ pub struct PomodoroApp {
     
     // Session metadata
     sessions_completed: u32,
+    
+    // Survey state
+    show_survey: bool,
+    survey_data: SurveyData,
+    survey_focus_rating: u32,
+    survey_what_helped: String,
+    survey_what_hurt: String,
 }
 
 impl PomodoroApp {
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         let config = Config::load();
         let remaining_seconds = config.work_duration * 60;
+        let survey_data = SurveyData::load();
         
         Self {
             mode: TimerMode::Work,
@@ -56,6 +65,11 @@ impl PomodoroApp {
             notes_view: NotesView::Edit,
             focus_notes_input: false,
             sessions_completed: 0,
+            show_survey: false,
+            survey_data,
+            survey_focus_rating: 5,
+            survey_what_helped: String::new(),
+            survey_what_hurt: String::new(),
         }
     }
     
@@ -91,6 +105,38 @@ impl PomodoroApp {
         self.last_tick = None;
     }
     
+    fn submit_survey(&mut self) {
+        self.survey_data.add_response(
+            self.survey_focus_rating,
+            self.survey_what_helped.clone(),
+            self.survey_what_hurt.clone(),
+        );
+        if let Err(e) = self.survey_data.save() {
+            eprintln!("Failed to save survey data: {}", e);
+        }
+        
+        // Reset survey form
+        self.survey_focus_rating = 5;
+        self.survey_what_helped.clear();
+        self.survey_what_hurt.clear();
+        self.show_survey = false;
+    }
+    
+    fn skip_survey(&mut self) {
+        self.show_survey = false;
+        // Reset survey form
+        self.survey_focus_rating = 5;
+        self.survey_what_helped.clear();
+        self.survey_what_hurt.clear();
+    }
+    
+    fn reset_survey_data(&mut self) {
+        self.survey_data.reset();
+        if let Err(e) = self.survey_data.save() {
+            eprintln!("Failed to reset survey data: {}", e);
+        }
+    }
+    
     fn tick(&mut self) {
         if !self.is_running {
             return;
@@ -103,6 +149,7 @@ impl PomodoroApp {
                     self.remaining_seconds -= 1;
                 } else {
                     // Timer complete - switch modes
+                    let previous_mode = self.mode;
                     self.mode = match self.mode {
                         TimerMode::Work => {
                             // Record end time and save notes when work session completes
@@ -121,6 +168,11 @@ impl PomodoroApp {
                             TimerMode::Work
                         }
                     };
+                    
+                    // Show survey after work session completes (if surveys are enabled)
+                    if previous_mode == TimerMode::Work && self.config.survey_enabled {
+                        self.show_survey = true;
+                    }
                 }
                 self.last_tick = Some(Instant::now());
             }
@@ -702,6 +754,30 @@ impl eframe::App for PomodoroApp {
                             .desired_width(300.0)
                     );
                     
+                    ui.add_space(15.0);
+                    
+                    // Survey toggle
+                    let survey_toggle_label = if self.config.survey_enabled { "📊 Surveys: ON" } else { "📊 Surveys: OFF" };
+                    if ui.add(
+                        egui::Button::new(egui::RichText::new(survey_toggle_label).color(text_color))
+                            .fill(button_color)
+                            .rounding(6.0)
+                    ).clicked() {
+                        self.config.survey_enabled = !self.config.survey_enabled;
+                        let _ = self.config.save();
+                    }
+                    
+                    ui.add_space(10.0);
+                    
+                    // Reset survey data button
+                    if ui.add(
+                        egui::Button::new(egui::RichText::new("🗑 Reset Survey Data").color(egui::Color32::from_rgb(0xe7, 0x4c, 0x3c)))
+                            .fill(button_color)
+                            .rounding(6.0)
+                    ).clicked() {
+                        self.reset_survey_data();
+                    }
+                    
                     ui.add_space(20.0);
                     
                     // Dialog buttons
@@ -719,6 +795,111 @@ impl eframe::App for PomodoroApp {
                                 .rounding(6.0)
                         ).clicked() {
                             self.save_settings();
+                        }
+                    });
+                });
+        }
+        
+        // Survey dialog
+        if self.show_survey {
+            egui::Window::new("Session Complete! 🎉")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ctx, |ui| {
+                    ui.set_min_width(400.0);
+                    
+                    ui.label(
+                        egui::RichText::new("How was your focus this session?")
+                            .size(16.0)
+                            .color(text_color)
+                    );
+                    
+                    ui.add_space(15.0);
+                    
+                    // Focus rating
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(format!("Focus Rating: {}/10", self.survey_focus_rating))
+                                .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc))
+                        );
+                        
+                        if ui.add(
+                            egui::Button::new("-")
+                                .fill(button_color)
+                                .rounding(6.0)
+                        ).clicked() {
+                            self.survey_focus_rating = self.survey_focus_rating.saturating_sub(1).max(1);
+                        }
+                        if ui.add(
+                            egui::Button::new("+")
+                                .fill(button_color)
+                                .rounding(6.0)
+                        ).clicked() {
+                            self.survey_focus_rating = self.survey_focus_rating.saturating_add(1).min(10);
+                        }
+                    });
+                    
+                    ui.add_space(15.0);
+                    
+                    // What helped
+                    ui.label(
+                        egui::RichText::new("What helped your focus? (optional)")
+                            .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc))
+                    );
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.survey_what_helped)
+                            .desired_width(350.0)
+                            .hint_text("e.g., quiet room, coffee, music...")
+                    );
+                    
+                    ui.add_space(10.0);
+                    
+                    // What hurt
+                    ui.label(
+                        egui::RichText::new("What hurt your focus? (optional)")
+                            .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc))
+                    );
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.survey_what_hurt)
+                            .desired_width(350.0)
+                            .hint_text("e.g., notifications, noise, hunger...")
+                    );
+                    
+                    ui.add_space(20.0);
+                    
+                    // Show stats if available
+                    if self.survey_data.focus_count > 0 {
+                        ui.separator();
+                        ui.add_space(5.0);
+                        ui.label(
+                            egui::RichText::new(format!("Today's Avg Focus: {:.1}/10", self.survey_data.average_focus_today))
+                                .size(12.0)
+                                .color(egui::Color32::from_rgb(0x88, 0x88, 0x88))
+                        );
+                        ui.label(
+                            egui::RichText::new(format!("Overall Avg Focus: {:.1}/10", self.survey_data.average_focus))
+                                .size(12.0)
+                                .color(egui::Color32::from_rgb(0x88, 0x88, 0x88))
+                        );
+                        ui.add_space(10.0);
+                    }
+                    
+                    // Dialog buttons
+                    ui.horizontal(|ui| {
+                        if ui.add(
+                            egui::Button::new("Skip")
+                                .fill(button_color)
+                                .rounding(6.0)
+                        ).clicked() {
+                            self.skip_survey();
+                        }
+                        if ui.add(
+                            egui::Button::new("Submit")
+                                .fill(egui::Color32::from_rgb(0x27, 0xae, 0x60))
+                                .rounding(6.0)
+                        ).clicked() {
+                            self.submit_survey();
                         }
                     });
                 });

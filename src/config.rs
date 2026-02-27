@@ -27,7 +27,12 @@ pub struct Config {
     
     #[serde(default)]
     pub notes_enabled: bool,
+    
+    #[serde(default = "default_survey_enabled")]
+    pub survey_enabled: bool,
 }
+
+fn default_survey_enabled() -> bool { true }
 
 fn default_work_duration() -> u32 { 25 }
 fn default_break_duration() -> u32 { 5 }
@@ -43,6 +48,7 @@ impl Default for Config {
             break_duration: default_break_duration(),
             notes_directory: default_notes_directory(),
             notes_enabled: false,
+            survey_enabled: default_survey_enabled(),
         }
     }
 }
@@ -137,6 +143,7 @@ mod tests {
             break_duration: 10,
             notes_directory: "/custom/path".to_string(),
             notes_enabled: true,
+            survey_enabled: true,
         };
         
         let json = serde_json::to_string(&config).unwrap();
@@ -146,6 +153,7 @@ mod tests {
         assert_eq!(parsed.break_duration, 10);
         assert_eq!(parsed.notes_directory, "/custom/path");
         assert!(parsed.notes_enabled);
+        assert!(parsed.survey_enabled);
     }
 
     #[test]
@@ -154,7 +162,8 @@ mod tests {
             "work_duration": 45,
             "break_duration": 15,
             "notes_directory": "/test/notes",
-            "notes_enabled": true
+            "notes_enabled": true,
+            "survey_enabled": false
         }"#;
         
         let config: Config = serde_json::from_str(json).unwrap();
@@ -162,6 +171,7 @@ mod tests {
         assert_eq!(config.break_duration, 15);
         assert_eq!(config.notes_directory, "/test/notes");
         assert!(config.notes_enabled);
+        assert!(!config.survey_enabled);
     }
 
     #[test]
@@ -175,6 +185,7 @@ mod tests {
         assert_eq!(config.work_duration, 20);
         assert_eq!(config.break_duration, 5); // default
         assert!(!config.notes_enabled); // default
+        assert!(config.survey_enabled); // default
     }
 
     #[test]
@@ -183,6 +194,7 @@ mod tests {
         let config: Config = serde_json::from_str(json).unwrap();
         assert_eq!(config.work_duration, 25); // default
         assert_eq!(config.break_duration, 5); // default
+        assert!(config.survey_enabled); // default
     }
 
     #[test]
@@ -195,6 +207,7 @@ mod tests {
             break_duration: 10,
             notes_directory: "/custom/notes".to_string(),
             notes_enabled: true,
+            survey_enabled: true,
         };
         
         config.save_to_path(&config_path).unwrap();
@@ -205,6 +218,7 @@ mod tests {
         assert_eq!(loaded.break_duration, 10);
         assert_eq!(loaded.notes_directory, "/custom/notes");
         assert!(loaded.notes_enabled);
+        assert!(loaded.survey_enabled);
     }
 
     #[test]
