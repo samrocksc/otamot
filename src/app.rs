@@ -2,7 +2,9 @@ use eframe::egui;
 use std::time::{Duration, Instant};
 use chrono::Local;
 
-use crate::config::{Config, TimerMode, NotesView};
+// Since app.rs is included from main.rs, we use otamot:: for library imports
+use otamot::config::{Config, NotesView};
+use otamot::timer::TimerMode;
 
 pub struct PomodoroApp {
     // Timer state

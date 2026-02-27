@@ -1,10 +1,8 @@
-mod app;
-mod config;
-
 use eframe::egui;
 use eframe::egui::IconData;
 
-use crate::app::PomodoroApp;
+// Import from local app module
+mod app;
 
 fn load_icon() -> Option<IconData> {
     // Load the icon from assets/icon.png (embedded in binary)
@@ -39,6 +37,6 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "Otamot",
         options,
-        Box::new(|cc| Ok(Box::new(PomodoroApp::new(cc)))),
+        Box::new(|cc| Ok(Box::new(app::PomodoroApp::new(cc)))),
     )
 }
