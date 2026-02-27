@@ -1,6 +1,8 @@
-# 🍅 Otamot
-
 <div align="center">
+
+<img src="assets/icon.svg" alt="Otamot Logo" width="128" height="128">
+
+# 🍅 Otamot
 
 **A minimal, focused Pomodoro timer that stays out of your way**
 
