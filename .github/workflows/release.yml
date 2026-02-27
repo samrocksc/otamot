@@ -4,8 +4,7 @@ on:
   push:
     tags:
       - 'v*'
-    branches:
-      - main
+      - 'v*-beta*'  # Support beta releases
 
 permissions:
   contents: write
@@ -36,7 +35,6 @@ jobs:
     strategy:
       matrix:
         include:
-          # macOS builds (Intel and Apple Silicon)
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact_name: otamot
@@ -45,7 +43,6 @@ jobs:
             target: x86_64-apple-darwin
             artifact_name: otamot
             asset_name: otamot-macos-x86_64
-          # Linux build (x86_64 only - aarch64 requires cross-compilation toolchain)
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact_name: otamot
@@ -69,12 +66,10 @@ jobs:
       - name: Build binary
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Strip binary (Linux/macOS)
-        if: matrix.os != 'windows-latest'
+      - name: Strip binary
         run: strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
 
-      - name: Create archive (Unix)
-        if: matrix.os != 'windows-latest'
+      - name: Create archive
         run: |
           cd target/${{ matrix.target }}/release
           tar -czvf ${{ matrix.asset_name }}.tar.gz ${{ matrix.artifact_name }}
@@ -99,13 +94,11 @@ jobs:
         with:
           path: artifacts
 
-      - name: Display structure of downloaded files
-        run: ls -R artifacts
-
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: artifacts/**/*.tar.gz
           generate_release_notes: true
+          prerelease: ${{ contains(github.ref, 'beta') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
