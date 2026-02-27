@@ -116,6 +116,9 @@ jobs:
           </plist>
           EOF
           
+          # Sign the .app bundle with ad-hoc signature (prevents "damaged" error on macOS)
+          codesign --force --deep --sign - Otamot.app
+          
           # Create archive from .app bundle
           zip -r ${{ matrix.asset_name }}.zip Otamot.app
 
