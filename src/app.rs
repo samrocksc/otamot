@@ -26,6 +26,7 @@ pub struct PomodoroApp {
     notes_enabled: bool,
     notes_content: String,
     notes_view: NotesView,
+    focus_notes_input: bool,  // Flag to request focus on notes text input
     
     // Session metadata
     sessions_completed: u32,
@@ -51,6 +52,7 @@ impl PomodoroApp {
             notes_enabled: config.notes_enabled,
             notes_content: String::new(),
             notes_view: NotesView::Edit,
+            focus_notes_input: false,
             sessions_completed: 0,
         }
     }
@@ -218,61 +220,111 @@ tags:
     
     fn render_markdown_preview(&self, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical().show(ui, |ui| {
-            egui::Grid::new("markdown_preview")
-                .num_columns(1)
-                .spacing(egui::vec2(0.0, 8.0))
-                .show(ui, |ui| {
-                    for line in self.notes_content.lines() {
-                        let trimmed = line.trim();
-                        
-                        if trimmed.starts_with("# ") {
-                            ui.label(
-                                egui::RichText::new(trimmed.strip_prefix("# ").unwrap_or(trimmed))
-                                    .size(20.0)
-                                    .strong()
-                                    .color(egui::Color32::from_rgb(0xee, 0xee, 0xee))
-                            );
-                        } else if trimmed.starts_with("## ") {
-                            ui.label(
-                                egui::RichText::new(trimmed.strip_prefix("## ").unwrap_or(trimmed))
-                                    .size(16.0)
-                                    .strong()
-                                    .color(egui::Color32::from_rgb(0xee, 0xee, 0xee))
-                            );
-                        } else if trimmed.starts_with("### ") {
-                            ui.label(
-                                egui::RichText::new(trimmed.strip_prefix("### ").unwrap_or(trimmed))
-                                    .size(14.0)
-                                    .strong()
-                                    .color(egui::Color32::from_rgb(0xee, 0xee, 0xee))
-                            );
-                        } else if trimmed.starts_with("- ") || trimmed.starts_with("* ") {
-                            let bullet_text = format!("• {}", trimmed.strip_prefix("- ").or_else(|| trimmed.strip_prefix("* ")).unwrap_or(trimmed));
-                            ui.label(
-                                egui::RichText::new(bullet_text)
-                                    .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc))
-                            );
-                        } else if trimmed.starts_with("**") && trimmed.ends_with("**") {
-                            let bold_text = trimmed.trim_matches('*');
-                            ui.label(
-                                egui::RichText::new(bold_text)
-                                    .strong()
-                                    .color(egui::Color32::from_rgb(0xee, 0xee, 0xee))
-                            );
-                        } else if !trimmed.is_empty() {
-                            let text = if trimmed.contains("**") {
-                                trimmed.replace("**", "")
-                            } else {
-                                trimmed.to_string()
-                            };
-                            ui.label(
-                                egui::RichText::new(text)
-                                    .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc))
-                            );
-                        }
-                    }
-                });
+            let mut in_code_block = false;
+            
+            for line in self.notes_content.lines() {
+                // Handle code blocks
+                if line.trim().starts_with("```") {
+                    in_code_block = !in_code_block;
+                    ui.label(
+                        egui::RichText::new(line)
+                            .monospace()
+                            .color(egui::Color32::from_rgb(0x88, 0x88, 0x88))
+                    );
+                    continue;
+                }
+                
+                if in_code_block {
+                    ui.label(
+                        egui::RichText::new(line)
+                            .monospace()
+                            .color(egui::Color32::from_rgb(0xaa, 0xaa, 0xaa))
+                    );
+                    continue;
+                }
+                
+                let trimmed = line.trim();
+                
+                if trimmed.starts_with("# ") {
+                    ui.add_space(8.0);
+                    ui.label(
+                        egui::RichText::new(trimmed.strip_prefix("# ").unwrap_or(trimmed))
+                            .size(20.0)
+                            .strong()
+                            .color(egui::Color32::from_rgb(0xee, 0xee, 0xee))
+                    );
+                    ui.add_space(4.0);
+                } else if trimmed.starts_with("## ") {
+                    ui.add_space(6.0);
+                    ui.label(
+                        egui::RichText::new(trimmed.strip_prefix("## ").unwrap_or(trimmed))
+                            .size(16.0)
+                            .strong()
+                            .color(egui::Color32::from_rgb(0xee, 0xee, 0xee))
+                    );
+                    ui.add_space(3.0);
+                } else if trimmed.starts_with("### ") {
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new(trimmed.strip_prefix("### ").unwrap_or(trimmed))
+                            .size(14.0)
+                            .strong()
+                            .color(egui::Color32::from_rgb(0xee, 0xee, 0xee))
+                    );
+                    ui.add_space(2.0);
+                } else if trimmed.starts_with("- ") || trimmed.starts_with("* ") {
+                    let bullet_text = format!("• {}", trimmed.strip_prefix("- ").or_else(|| trimmed.strip_prefix("* ")).unwrap_or(trimmed));
+                    ui.label(
+                        egui::RichText::new(bullet_text)
+                            .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc))
+                    );
+                } else if trimmed.starts_with("  - ") || trimmed.starts_with("  * ") {
+                    // Indented list items
+                    let bullet_text = format!("  ◦ {}", trimmed[2..].trim().strip_prefix("- ").or_else(|| trimmed[2..].trim().strip_prefix("* ")).unwrap_or(trimmed));
+                    ui.label(
+                        egui::RichText::new(bullet_text)
+                            .color(egui::Color32::from_rgb(0xaa, 0xaa, 0xaa))
+                    );
+                } else if trimmed.starts_with("**") && trimmed.ends_with("**") && trimmed.len() > 4 {
+                    let bold_text = trimmed[2..trimmed.len()-2].to_string();
+                    ui.label(
+                        egui::RichText::new(bold_text)
+                            .strong()
+                            .color(egui::Color32::from_rgb(0xee, 0xee, 0xee))
+                    );
+                } else if trimmed.is_empty() {
+                    // Preserve empty lines as spacing
+                    ui.add_space(6.0);
+                } else {
+                    // Regular paragraph text - handle inline bold
+                    let text = self.format_inline_markdown(trimmed);
+                    ui.label(
+                        egui::RichText::new(text)
+                            .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc))
+                    );
+                }
+            }
         });
+    }
+    
+    fn format_inline_markdown(&self, text: &str) -> String {
+        // Simple inline formatting - remove markdown syntax for display
+        let mut result = text.to_string();
+        
+        // Handle inline code `code`
+        while let Some(start) = result.find('`') {
+            if let Some(end) = result[start+1..].find('`') {
+                let code = &result[start+1..start+1+end];
+                result = format!("{}[{}]{}", &result[..start], code, &result[start+1+end+1..]);
+            } else {
+                break;
+            }
+        }
+        
+        // Remove bold markers but keep text
+        result = result.replace("**", "");
+        
+        result
     }
 }
 
@@ -283,7 +335,10 @@ impl eframe::App for PomodoroApp {
             if self.notes_enabled {
                 self.notes_view = match self.notes_view {
                     NotesView::Edit => NotesView::Preview,
-                    NotesView::Preview => NotesView::Edit,
+                    NotesView::Preview => {
+                        self.focus_notes_input = true;  // Request focus when switching to Edit
+                        NotesView::Edit
+                    }
                 };
             }
         }
@@ -447,6 +502,7 @@ impl eframe::App for PomodoroApp {
                                     .min_size(egui::vec2(50.0, 20.0))
                             ).clicked() {
                                 self.notes_view = NotesView::Edit;
+                                self.focus_notes_input = true;  // Request focus when clicking Edit tab
                             }
                             
                             if ui.add(
@@ -464,12 +520,20 @@ impl eframe::App for PomodoroApp {
                         match self.notes_view {
                             NotesView::Edit => {
                                 egui::ScrollArea::vertical().show(ui, |ui| {
-                                    ui.add(
-                                        egui::TextEdit::multiline(&mut self.notes_content)
-                                            .desired_width(400.0)
-                                            .desired_rows(15)
-                                            .font(egui::TextStyle::Monospace)
-                                    );
+                                    let mut text_edit = egui::TextEdit::multiline(&mut self.notes_content)
+                                        .desired_width(400.0)
+                                        .desired_rows(15)
+                                        .font(egui::TextStyle::Monospace);
+                                    
+                                    // Request focus if flag is set
+                                    if self.focus_notes_input {
+                                        text_edit = text_edit.id(ui.auto_id_with("notes_input"));
+                                        ui.add(text_edit);
+                                        ui.memory_mut(|mem| mem.request_focus(ui.auto_id_with("notes_input")));
+                                        self.focus_notes_input = false;
+                                    } else {
+                                        ui.add(text_edit);
+                                    }
                                 });
                             }
                             NotesView::Preview => {
