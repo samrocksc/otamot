@@ -2,7 +2,9 @@
 // This lib.rs exposes modules for testing
 
 pub mod bell;
+pub mod commands;
 pub mod config;
+pub mod hashtags;
 pub mod markdown;
 pub mod notes;
 pub mod survey;

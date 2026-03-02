@@ -4,10 +4,19 @@ use std::time::{Duration, Instant};
 
 // Since app.rs is included from main.rs, we use otamot:: for library imports
 use otamot::bell::Bell;
+use otamot::commands::CommandManager;
 use otamot::config::{Config, NotesView};
+use otamot::hashtags::HashtagLibrary;
 use otamot::markdown::{format_markdown, insert_date_bullet};
 use otamot::survey::SurveyData;
 use otamot::timer::TimerMode;
+
+/// Dropdown state for autocomplete
+#[derive(Debug, Clone, PartialEq)]
+enum DropdownType {
+    Command,
+    Hashtag,
+}
 
 pub struct PomodoroApp {
     // Timer state
@@ -35,6 +44,15 @@ pub struct PomodoroApp {
     notes_content: String,
     notes_view: NotesView,
     focus_notes_input: bool, // Flag to request focus on notes text input
+
+    // Slash commands and hashtags
+    command_manager: CommandManager,
+    hashtag_library: HashtagLibrary,
+    dropdown_visible: bool,
+    dropdown_type: DropdownType,
+    dropdown_items: Vec<String>,
+    dropdown_selected: usize,
+    dropdown_start_pos: usize, // Position of / or # in text
 
     // Session metadata
     sessions_completed: u32,
@@ -72,6 +90,13 @@ impl PomodoroApp {
             notes_content: String::new(),
             notes_view: NotesView::Edit,
             focus_notes_input: false,
+            command_manager: CommandManager::load(),
+            hashtag_library: HashtagLibrary::load(),
+            dropdown_visible: false,
+            dropdown_type: DropdownType::Command,
+            dropdown_items: Vec::new(),
+            dropdown_selected: 0,
+            dropdown_start_pos: 0,
             sessions_completed: 0,
             show_survey: false,
             show_survey_summary: false,
@@ -227,6 +252,9 @@ tags:
     }
 
     fn save_notes(&mut self) {
+        // Save hashtag library
+        self.hashtag_library.save();
+
         let notes_dir = std::path::PathBuf::from(&self.config.notes_directory);
         if let Err(e) = std::fs::create_dir_all(&notes_dir) {
             eprintln!("Failed to create notes directory: {}", e);
@@ -262,6 +290,10 @@ tags:
         if let Err(e) = self.config.save() {
             eprintln!("Failed to save config: {}", e);
         }
+
+        // Save slash commands and hashtags
+        self.command_manager.save();
+        self.hashtag_library.save();
 
         // Reset timer if not running
         if !self.is_running {
@@ -447,20 +479,146 @@ impl eframe::App for PomodoroApp {
             && self.notes_enabled
             && self.notes_view == NotesView::Edit
         {
-            // Simple approach: if content ends with empty bullet "- " or "* ", indent it
-            let trimmed = self.notes_content.trim_end();
-            if trimmed.ends_with("- ") || trimmed.ends_with("* ") {
-                // Find the last line and indent it
-                if let Some(last_newline) = self.notes_content.rfind('\n') {
-                    let before = &self.notes_content[..last_newline + 1];
-                    let after = &self.notes_content[last_newline + 1..];
-                    // Indent by 2 spaces
-                    self.notes_content = format!("{}  {}", before, after);
-                } else {
-                    // Only one line, indent entire content
-                    self.notes_content = format!("  {}", self.notes_content);
+            // If dropdown is visible, Tab moves selection
+            if self.dropdown_visible {
+                if !self.dropdown_items.is_empty() {
+                    self.dropdown_selected =
+                        (self.dropdown_selected + 1) % self.dropdown_items.len();
+                }
+            } else {
+                // Simple approach: if content ends with empty bullet "- " or "* ", indent it
+                let trimmed = self.notes_content.trim_end();
+                if trimmed.ends_with("- ") || trimmed.ends_with("* ") {
+                    // Find the last line and indent it
+                    if let Some(last_newline) = self.notes_content.rfind('\n') {
+                        let before = &self.notes_content[..last_newline + 1];
+                        let after = &self.notes_content[last_newline + 1..];
+                        // Indent by 2 spaces
+                        self.notes_content = format!("{}  {}", before, after);
+                    } else {
+                        // Only one line, indent entire content
+                        self.notes_content = format!("  {}", self.notes_content);
+                    }
                 }
             }
+        }
+
+        // Handle slash commands and hashtag autocomplete
+        if self.notes_enabled && self.notes_view == NotesView::Edit {
+            // Check for slash command or hashtag at cursor
+            let cursor_pos = self.notes_content.len(); // Simplified: use end of text
+
+            if !self.dropdown_visible {
+                // Check for slash command
+                if let Some((pos, cmd)) =
+                    CommandManager::find_command_at_cursor(&self.notes_content, cursor_pos)
+                {
+                    self.dropdown_visible = true;
+                    self.dropdown_type = DropdownType::Command;
+                    self.dropdown_start_pos = pos;
+                    self.dropdown_items = self.command_manager.search_commands(&cmd);
+                    self.dropdown_selected = 0;
+                }
+                // Check for hashtag
+                else if let Some((pos, tag)) =
+                    HashtagLibrary::find_hashtag_at_cursor(&self.notes_content, cursor_pos)
+                {
+                    self.dropdown_visible = true;
+                    self.dropdown_type = DropdownType::Hashtag;
+                    self.dropdown_start_pos = pos;
+                    self.dropdown_items = self.hashtag_library.search(&tag);
+                    self.dropdown_selected = 0;
+                }
+            } else {
+                // Update dropdown based on current text
+                match self.dropdown_type {
+                    DropdownType::Command => {
+                        if let Some((pos, cmd)) =
+                            CommandManager::find_command_at_cursor(&self.notes_content, cursor_pos)
+                        {
+                            self.dropdown_start_pos = pos;
+                            self.dropdown_items = self.command_manager.search_commands(&cmd);
+                            if self.dropdown_selected >= self.dropdown_items.len() {
+                                self.dropdown_selected = 0;
+                            }
+                        } else {
+                            self.dropdown_visible = false;
+                        }
+                    }
+                    DropdownType::Hashtag => {
+                        if let Some((pos, tag)) =
+                            HashtagLibrary::find_hashtag_at_cursor(&self.notes_content, cursor_pos)
+                        {
+                            self.dropdown_start_pos = pos;
+                            self.dropdown_items = self.hashtag_library.search(&tag);
+                            if self.dropdown_selected >= self.dropdown_items.len() {
+                                self.dropdown_selected = 0;
+                            }
+                        } else {
+                            self.dropdown_visible = false;
+                        }
+                    }
+                }
+            }
+
+            // Handle Enter to select dropdown item
+            if self.dropdown_visible
+                && ctx.input(|i| i.key_pressed(egui::Key::Enter))
+                && !self.dropdown_items.is_empty()
+            {
+                let selected_item = self.dropdown_items[self.dropdown_selected].clone();
+                match self.dropdown_type {
+                    DropdownType::Command => {
+                        if let Some(replacement) = self.command_manager.execute(&selected_item) {
+                            let cursor_pos = self.notes_content.len();
+                            self.notes_content = CommandManager::insert_command(
+                                &self.notes_content,
+                                cursor_pos,
+                                self.dropdown_start_pos,
+                                &replacement,
+                            );
+                        }
+                    }
+                    DropdownType::Hashtag => {
+                        let cursor_pos = self.notes_content.len();
+                        self.notes_content = HashtagLibrary::insert_hashtag(
+                            &self.notes_content,
+                            cursor_pos,
+                            self.dropdown_start_pos,
+                            &selected_item,
+                        );
+                        // Add to library
+                        self.hashtag_library.add(&selected_item);
+                    }
+                }
+                self.dropdown_visible = false;
+                self.focus_notes_input = true;
+            }
+
+            // Handle Escape to close dropdown
+            if self.dropdown_visible && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.dropdown_visible = false;
+            }
+
+            // Handle arrow keys for dropdown navigation
+            if self.dropdown_visible && ctx.input(|i| i.key_pressed(egui::Key::ArrowDown))
+                && !self.dropdown_items.is_empty() {
+                    self.dropdown_selected =
+                        (self.dropdown_selected + 1) % self.dropdown_items.len();
+                }
+            if self.dropdown_visible && ctx.input(|i| i.key_pressed(egui::Key::ArrowUp))
+                && !self.dropdown_items.is_empty() {
+                    self.dropdown_selected = if self.dropdown_selected == 0 {
+                        self.dropdown_items.len() - 1
+                    } else {
+                        self.dropdown_selected - 1
+                    };
+                }
+        }
+
+        // Extract hashtags from content when saving
+        if !self.notes_content.is_empty() {
+            self.hashtag_library.extract_and_add(&self.notes_content);
         }
 
         // Tick the timer
@@ -700,6 +858,69 @@ impl eframe::App for PomodoroApp {
                                             .font(egui::TextStyle::Monospace),
                                     );
                                 });
+
+                                // Show autocomplete dropdown
+                                if self.dropdown_visible && !self.dropdown_items.is_empty() {
+                                    ui.add_space(5.0);
+                                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                                        ui.set_max_width(300.0);
+                                        ui.label(
+                                            egui::RichText::new(
+                                                if self.dropdown_type == DropdownType::Command {
+                                                    "Commands:"
+                                                } else {
+                                                    "Hashtags:"
+                                                },
+                                            )
+                                            .weak()
+                                            .size(10.0),
+                                        );
+                                        ui.add_space(2.0);
+                                        egui::ScrollArea::vertical()
+                                            .max_height(150.0)
+                                            .show(ui, |ui| {
+                                                for (i, item) in self.dropdown_items.iter().enumerate() {
+                                                    let is_selected = i == self.dropdown_selected;
+                                                    let text = if self.dropdown_type == DropdownType::Hashtag {
+                                                        format!("#{}", item)
+                                                    } else {
+                                                        format!("/{}", item)
+                                                    };
+
+                                                    let response = ui.selectable_label(is_selected, &text);
+                                                    if response.clicked() {
+                                                        // Handle selection
+                                                        let selected_item = item.clone();
+                                                        match self.dropdown_type {
+                                                            DropdownType::Command => {
+                                                                if let Some(replacement) = self.command_manager.execute(&selected_item) {
+                                                                    let cursor_pos = self.notes_content.len();
+                                                                    self.notes_content = CommandManager::insert_command(
+                                                                        &self.notes_content,
+                                                                        cursor_pos,
+                                                                        self.dropdown_start_pos,
+                                                                        &replacement,
+                                                                    );
+                                                                }
+                                                            }
+                                                            DropdownType::Hashtag => {
+                                                                let cursor_pos = self.notes_content.len();
+                                                                self.notes_content = HashtagLibrary::insert_hashtag(
+                                                                    &self.notes_content,
+                                                                    cursor_pos,
+                                                                    self.dropdown_start_pos,
+                                                                    &selected_item,
+                                                                );
+                                                                self.hashtag_library.add(&selected_item);
+                                                            }
+                                                        }
+                                                        self.dropdown_visible = false;
+                                                        self.focus_notes_input = true;
+                                                    }
+                                                }
+                                            });
+                                    });
+                                }
                             }
                             NotesView::Preview => {
                                 self.render_markdown_preview(ui);
