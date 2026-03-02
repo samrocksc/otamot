@@ -436,19 +436,6 @@ impl eframe::App for PomodoroApp {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
 
-        // Calculate window size based on notes visibility and settings dialog
-        // Ensure window is wide enough for settings dialog when it's open
-        let base_width = if self.show_settings || self.show_survey {
-            450.0 // Wide enough for settings/survey dialogs
-        } else if self.notes_enabled {
-            700.0
-        } else {
-            320.0
-        };
-        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
-            base_width, 420.0,
-        )));
-
         // Dark theme colors
         let text_color = egui::Color32::from_rgb(0xee, 0xee, 0xee);
         let work_color = egui::Color32::from_rgb(0xe7, 0x4c, 0x3c);
@@ -673,7 +660,7 @@ impl eframe::App for PomodoroApp {
                                     ui.add(
                                         egui::TextEdit::multiline(&mut self.notes_content)
                                             .id(egui::Id::new("notes_text_input"))
-                                            .desired_width(400.0)
+                                            .desired_width(f32::INFINITY) // Use all available width
                                             .desired_rows(15)
                                             .font(egui::TextStyle::Monospace),
                                     );
