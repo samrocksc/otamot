@@ -40,6 +40,7 @@ pub struct PomodoroApp {
 
     // Survey state
     show_survey: bool,
+    show_survey_summary: bool,
     survey_data: SurveyData,
     survey_focus_rating: u32,
     survey_what_helped: String,
@@ -72,6 +73,7 @@ impl PomodoroApp {
             focus_notes_input: false,
             sessions_completed: 0,
             show_survey: false,
+            show_survey_summary: false,
             survey_data,
             survey_focus_rating: 5,
             survey_what_helped: String::new(),
@@ -443,7 +445,9 @@ impl eframe::App for PomodoroApp {
         } else {
             320.0
         };
-        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(base_width, 420.0)));
+        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+            base_width, 420.0,
+        )));
 
         // Dark theme colors
         let text_color = egui::Color32::from_rgb(0xee, 0xee, 0xee);
@@ -533,6 +537,20 @@ impl eframe::App for PomodoroApp {
                             self.temp_break_duration = self.config.break_duration;
                             self.temp_notes_directory = self.config.notes_directory.clone();
                             self.show_settings = true;
+                        }
+
+                        // Survey summary button
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    egui::RichText::new("📊 Survey Summary").color(text_color),
+                                )
+                                .fill(button_color)
+                                .rounding(8.0),
+                            )
+                            .clicked()
+                        {
+                            self.show_survey_summary = true;
                         }
 
                         // Notes toggle (in timer column)
@@ -731,6 +749,20 @@ impl eframe::App for PomodoroApp {
                         self.temp_break_duration = self.config.break_duration;
                         self.temp_notes_directory = self.config.notes_directory.clone();
                         self.show_settings = true;
+                    }
+
+                    // Survey summary button
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new("📊 Survey Summary").color(text_color),
+                            )
+                            .fill(button_color)
+                            .rounding(8.0),
+                        )
+                        .clicked()
+                    {
+                        self.show_survey_summary = true;
                     }
 
                     ui.add_space(10.0);
@@ -1012,6 +1044,132 @@ impl eframe::App for PomodoroApp {
                             self.submit_survey();
                         }
                     });
+                });
+        }
+
+        // Survey Summary dialog
+        if self.show_survey_summary {
+            egui::Window::new("📊 Survey Summary")
+                .collapsible(false)
+                .resizable(false)
+                .constrain(false)
+                .show(ctx, |ui| {
+                    ui.set_min_width(400.0);
+
+                    if self.survey_data.focus_count == 0 {
+                        ui.label(
+                            egui::RichText::new("No survey data yet!")
+                                .size(16.0)
+                                .color(egui::Color32::from_rgb(0xaa, 0xaa, 0xaa)),
+                        );
+                        ui.add_space(10.0);
+                        ui.label(
+                            egui::RichText::new("Complete a work session to add survey responses.")
+                                .size(12.0)
+                                .color(egui::Color32::from_rgb(0x88, 0x88, 0x88)),
+                        );
+                    } else {
+                        // Focus ratings section
+                        ui.label(
+                            egui::RichText::new("Focus Ratings")
+                                .size(16.0)
+                                .strong()
+                                .color(text_color),
+                        );
+                        ui.add_space(8.0);
+
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new("Today's Average:")
+                                    .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
+                            );
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "{:.1}/10",
+                                    self.survey_data.average_focus_today
+                                ))
+                                .strong()
+                                .color(egui::Color32::from_rgb(0x27, 0xae, 0x60)),
+                            );
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new("Overall Average:")
+                                    .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
+                            );
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "{:.1}/10",
+                                    self.survey_data.average_focus
+                                ))
+                                .strong()
+                                .color(egui::Color32::from_rgb(0x27, 0xae, 0x60)),
+                            );
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new("Total Sessions:")
+                                    .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
+                            );
+                            ui.label(
+                                egui::RichText::new(format!("{}", self.survey_data.focus_count))
+                                    .strong()
+                                    .color(text_color),
+                            );
+                        });
+
+                        ui.add_space(15.0);
+
+                        // What helped section
+                        if !self.survey_data.what_helped.is_empty() {
+                            ui.label(
+                                egui::RichText::new("What Helped Focus")
+                                    .size(16.0)
+                                    .strong()
+                                    .color(egui::Color32::from_rgb(0x27, 0xae, 0x60)),
+                            );
+                            ui.add_space(5.0);
+                            for item in &self.survey_data.what_helped {
+                                ui.label(
+                                    egui::RichText::new(format!("• {}", item))
+                                        .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
+                                );
+                            }
+                            ui.add_space(10.0);
+                        }
+
+                        // What hurt section
+                        if !self.survey_data.what_hurt.is_empty() {
+                            ui.label(
+                                egui::RichText::new("What Hurt Focus")
+                                    .size(16.0)
+                                    .strong()
+                                    .color(egui::Color32::from_rgb(0xe7, 0x4c, 0x3c)),
+                            );
+                            ui.add_space(5.0);
+                            for item in &self.survey_data.what_hurt {
+                                ui.label(
+                                    egui::RichText::new(format!("• {}", item))
+                                        .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
+                                );
+                            }
+                        }
+
+                        ui.add_space(15.0);
+                    }
+
+                    ui.separator();
+                    ui.add_space(10.0);
+
+                    // Close button
+                    if ui
+                        .add(egui::Button::new("Close").fill(button_color).rounding(6.0))
+                        .clicked()
+                    {
+                        self.show_survey_summary = false;
+                    }
                 });
         }
     }
