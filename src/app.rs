@@ -957,6 +957,7 @@ impl eframe::App for PomodoroApp {
                                                     egui::ScrollArea::vertical()
                                                         .max_height(150.0)
                                                         .show(ui, |ui| {
+                                                            let mut selected_action: Option<(DropdownType, String)> = None;
                                                             for (i, item) in self.dropdown_items.iter().enumerate() {
                                                                 let is_selected = i == self.dropdown_selected;
                                                                 let text = if self.dropdown_type == DropdownType::Hashtag {
@@ -967,35 +968,38 @@ impl eframe::App for PomodoroApp {
 
                                                                 let response = ui.selectable_label(is_selected, &text);
                                                                 if response.clicked() {
-                                                                    // Handle selection
-                                                                    let selected_item = item.clone();
-                                                                    match self.dropdown_type {
-                                                                        DropdownType::Command => {
-                                                                            if let Some(replacement) = self.command_manager.execute(&selected_item) {
-                                                                                let cursor_pos = self.notes_content.len();
-                                                                                self.notes_content = CommandManager::insert_command(
-                                                                                    &self.notes_content,
-                                                                                    cursor_pos,
-                                                                                    self.dropdown_start_pos,
-                                                                                    &replacement,
-                                                                                );
-                                                                            }
-                                                                        }
-                                                                        DropdownType::Hashtag => {
+                                                                    selected_action = Some((self.dropdown_type.clone(), item.clone()));
+                                                                }
+                                                            }
+                                                            
+                                                            // Apply selection after the loop to avoid borrow issues
+                                                            if let Some((dtype, selected_item)) = selected_action {
+                                                                match dtype {
+                                                                    DropdownType::Command => {
+                                                                        if let Some(replacement) = self.command_manager.execute(&selected_item) {
                                                                             let cursor_pos = self.notes_content.len();
-                                                                            self.notes_content = HashtagLibrary::insert_hashtag(
+                                                                            self.notes_content = CommandManager::insert_command(
                                                                                 &self.notes_content,
                                                                                 cursor_pos,
                                                                                 self.dropdown_start_pos,
-                                                                                &selected_item,
+                                                                                &replacement,
                                                                             );
-                                                                            self.hashtag_library.add(&selected_item);
                                                                         }
                                                                     }
-                                                                    self.dropdown_visible = false;
-                                                                    self.dropdown_items.clear();
-                                                                    self.focus_notes_input = true;
+                                                                    DropdownType::Hashtag => {
+                                                                        let cursor_pos = self.notes_content.len();
+                                                                        self.notes_content = HashtagLibrary::insert_hashtag(
+                                                                            &self.notes_content,
+                                                                            cursor_pos,
+                                                                            self.dropdown_start_pos,
+                                                                            &selected_item,
+                                                                        );
+                                                                        self.hashtag_library.add(&selected_item);
+                                                                    }
                                                                 }
+                                                                self.dropdown_visible = false;
+                                                                self.dropdown_items.clear();
+                                                                self.focus_notes_input = true;
                                                             }
                                                         });
                                                 });
