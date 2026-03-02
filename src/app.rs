@@ -10,6 +10,7 @@ use otamot::hashtags::HashtagLibrary;
 use otamot::markdown::{format_markdown, insert_date_bullet};
 use otamot::survey::SurveyData;
 use otamot::timer::TimerMode;
+use otamot::todo::TodoList;
 
 /// Dropdown state for autocomplete
 #[derive(Debug, Clone, PartialEq)]
@@ -54,6 +55,13 @@ pub struct PomodoroApp {
     dropdown_selected: usize,
     dropdown_start_pos: usize, // Position of / or # in text
 
+    // Help menu
+    show_help: bool,
+
+    // TODO list
+    todo_list: TodoList,
+    todo_input: String,
+
     // Session metadata
     sessions_completed: u32,
 
@@ -97,6 +105,9 @@ impl PomodoroApp {
             dropdown_items: Vec::new(),
             dropdown_selected: 0,
             dropdown_start_pos: 0,
+            show_help: false,
+            todo_list: TodoList::load(),
+            todo_input: String::new(),
             sessions_completed: 0,
             show_survey: false,
             show_survey_summary: false,
@@ -509,6 +520,11 @@ impl eframe::App for PomodoroApp {
             self.focus_notes_input = true;
         }
 
+        // Handle Ctrl+? (Ctrl+Shift+/) to show help menu
+        if ctx.input(|i| i.key_pressed(egui::Key::Slash) && i.modifiers.ctrl && i.modifiers.shift) {
+            self.show_help = !self.show_help;
+        }
+
         // Handle Tab key to indent list items
         if ctx.input(|i| i.key_pressed(egui::Key::Tab))
             && self.notes_enabled
@@ -808,6 +824,21 @@ impl eframe::App for PomodoroApp {
                             }
                         }
 
+                        // Help button
+                        ui.add_space(10.0);
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    egui::RichText::new("❓ Help").color(text_color),
+                                )
+                                .fill(button_color)
+                                .rounding(8.0),
+                            )
+                            .clicked()
+                        {
+                            self.show_help = !self.show_help;
+                        }
+
                         // Session counter
                         ui.add_space(10.0);
                         ui.label(
@@ -1071,6 +1102,126 @@ impl eframe::App for PomodoroApp {
                             .size(12.0)
                             .color(egui::Color32::from_rgb(0x88, 0x88, 0x88)),
                     );
+
+                    // Help button
+                    ui.add_space(10.0);
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new("❓ Help").color(text_color),
+                            )
+                            .fill(button_color)
+                            .rounding(8.0),
+                        )
+                        .clicked()
+                    {
+                        self.show_help = !self.show_help;
+                    }
+
+                    // TODO list section
+                    ui.add_space(15.0);
+                    ui.separator();
+                    ui.add_space(10.0);
+                    
+                    ui.label(
+                        egui::RichText::new("📋 TODO")
+                            .size(16.0)
+                            .color(text_color)
+                            .strong(),
+                    );
+                    
+                    // TODO count
+                    let incomplete = self.todo_list.incomplete_count();
+                    let completed = self.todo_list.completed_count();
+                    ui.label(
+                        egui::RichText::new(format!("{} pending, {} done", incomplete, completed))
+                            .size(11.0)
+                            .color(egui::Color32::from_rgb(0x88, 0x88, 0x88)),
+                    );
+                    
+                    ui.add_space(5.0);
+                    
+                    // Add TODO input
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.todo_input)
+                                .desired_width(150.0)
+                                .hint_text("Add task..."),
+                        );
+                        if ui.add(egui::Button::new("➕").fill(button_color)).clicked() {
+                            if !self.todo_input.trim().is_empty() {
+                                self.todo_list.add(self.todo_input.trim().to_string());
+                                self.todo_input.clear();
+                                self.todo_list.save();
+                            }
+                        }
+                    });
+                    
+                    // TODO list
+                    ui.add_space(5.0);
+                    egui::ScrollArea::vertical()
+                        .max_height(150.0)
+                        .show(ui, |ui| {
+                            let mut to_remove = None;
+                            let mut to_toggle = None;
+                            
+                            for item in self.todo_list.items.iter_mut() {
+                                ui.horizontal(|ui| {
+                                    let checkbox = ui.checkbox(&mut item.completed, "");
+                                    if checkbox.clicked() {
+                                        to_toggle = Some(item.id);
+                                    }
+                                    
+                                    let text_color = if item.completed {
+                                        egui::Color32::from_rgb(0x88, 0x88, 0x88)
+                                    } else {
+                                        text_color
+                                    };
+                                    
+                                    let text = if item.completed {
+                                        egui::RichText::new(&item.text)
+                                            .strikethrough()
+                                            .color(text_color)
+                                    } else {
+                                        egui::RichText::new(&item.text).color(text_color)
+                                    };
+                                    
+                                    ui.label(text);
+                                    
+                                    if ui.add(egui::Button::new("❌").fill(button_color).small()).clicked() {
+                                        to_remove = Some(item.id);
+                                    }
+                                });
+                            }
+                            
+                            if let Some(id) = to_toggle {
+                                self.todo_list.toggle(id);
+                                self.todo_list.save();
+                            }
+                            
+                            if let Some(id) = to_remove {
+                                self.todo_list.remove(id);
+                                self.todo_list.save();
+                            }
+                        });
+                    
+                    // Clear completed button
+                    if completed > 0 {
+                        ui.add_space(5.0);
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    egui::RichText::new("Clear completed").size(10.0).color(text_color),
+                                )
+                                .fill(button_color)
+                                .rounding(4.0),
+                            )
+                            .clicked()
+                        {
+                            self.todo_list.clear_completed();
+                            self.todo_list.save();
+                        }
+                    }
                 });
             }
         });
@@ -1508,6 +1659,115 @@ impl eframe::App for PomodoroApp {
                         .clicked()
                     {
                         self.show_survey_summary = false;
+                    }
+                });
+        }
+
+        // Help dialog
+        if self.show_help {
+            egui::Window::new("⌨️ Keyboard Shortcuts")
+                .collapsible(false)
+                .resizable(false)
+                .constrain(false)
+                .show(ctx, |ui| {
+                    ui.set_min_width(350.0);
+
+                    ui.label(
+                        egui::RichText::new("Timer Controls")
+                            .size(14.0)
+                            .strong()
+                            .color(text_color),
+                    );
+                    ui.add_space(5.0);
+                    
+                    let timer_shortcuts = [
+                        ("Space", "Start/Pause timer"),
+                        ("R", "Reset timer"),
+                    ];
+                    for (key, action) in timer_shortcuts {
+                        ui.horizontal(|ui| {
+                            ui.add_space(10.0);
+                            ui.label(
+                                egui::RichText::new(format!("{:<12}", key))
+                                    .monospace()
+                                    .color(egui::Color32::from_rgb(0x88, 0xcc, 0xff)),
+                            );
+                            ui.label(egui::RichText::new(action).color(text_color));
+                        });
+                    }
+
+                    ui.add_space(10.0);
+                    ui.separator();
+                    ui.add_space(10.0);
+
+                    ui.label(
+                        egui::RichText::new("Notes Editor")
+                            .size(14.0)
+                            .strong()
+                            .color(text_color),
+                    );
+                    ui.add_space(5.0);
+
+                    let notes_shortcuts = [
+                        ("Ctrl+P", "Format markdown & toggle preview"),
+                        ("Ctrl+D", "Insert timestamped bullet"),
+                        ("Tab", "Indent list item (on empty bullet)"),
+                        ("/", "Start slash command"),
+                        ("#", "Start hashtag autocomplete"),
+                        ("↑/↓", "Navigate dropdown suggestions"),
+                        ("Enter/Tab", "Select suggestion"),
+                        ("Esc", "Close dropdown"),
+                    ];
+                    for (key, action) in notes_shortcuts {
+                        ui.horizontal(|ui| {
+                            ui.add_space(10.0);
+                            ui.label(
+                                egui::RichText::new(format!("{:<12}", key))
+                                    .monospace()
+                                    .color(egui::Color32::from_rgb(0x88, 0xcc, 0xff)),
+                            );
+                            ui.label(egui::RichText::new(action).color(text_color));
+                        });
+                    }
+
+                    ui.add_space(10.0);
+                    ui.separator();
+                    ui.add_space(10.0);
+
+                    ui.label(
+                        egui::RichText::new("General")
+                            .size(14.0)
+                            .strong()
+                            .color(text_color),
+                    );
+                    ui.add_space(5.0);
+
+                    let general_shortcuts = [
+                        ("Ctrl+?", "Toggle this help menu"),
+                        ("S", "Open settings"),
+                    ];
+                    for (key, action) in general_shortcuts {
+                        ui.horizontal(|ui| {
+                            ui.add_space(10.0);
+                            ui.label(
+                                egui::RichText::new(format!("{:<12}", key))
+                                    .monospace()
+                                    .color(egui::Color32::from_rgb(0x88, 0xcc, 0xff)),
+                            );
+                            ui.label(egui::RichText::new(action).color(text_color));
+                        });
+                    }
+
+                    ui.add_space(15.0);
+                    ui.separator();
+                    ui.add_space(10.0);
+
+                    // Close button
+                    if ui
+                        .add(egui::Button::new("Close").fill(button_color).rounding(6.0))
+                        .clicked()
+                    {
+                        self.show_help = false;
                     }
                 });
         }
