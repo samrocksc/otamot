@@ -642,13 +642,18 @@ impl eframe::App for PomodoroApp {
                         self.hashtag_library.add(&selected_item);
                     }
                 }
+                // Reset dropdown state completely
                 self.dropdown_visible = false;
+                self.dropdown_items.clear();
+                self.dropdown_selected = 0;
                 self.focus_notes_input = true;
             }
 
             // Handle Escape to close dropdown
             if self.dropdown_visible && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
                 self.dropdown_visible = false;
+                self.dropdown_items.clear();
+                self.dropdown_selected = 0;
             }
 
             // Handle arrow keys for dropdown navigation
@@ -925,67 +930,76 @@ impl eframe::App for PomodoroApp {
                                     );
                                 });
 
-                                // Show autocomplete dropdown
+                                // Show autocomplete dropdown as a floating panel above text area
                                 if self.dropdown_visible && !self.dropdown_items.is_empty() {
-                                    ui.add_space(5.0);
-                                    egui::Frame::popup(ui.style()).show(ui, |ui| {
-                                        ui.set_max_width(300.0);
-                                        ui.label(
-                                            egui::RichText::new(
-                                                if self.dropdown_type == DropdownType::Command {
-                                                    "Commands:"
-                                                } else {
-                                                    "Hashtags:"
-                                                },
-                                            )
-                                            .weak()
-                                            .size(10.0),
-                                        );
-                                        ui.add_space(2.0);
-                                        egui::ScrollArea::vertical()
-                                            .max_height(150.0)
-                                            .show(ui, |ui| {
-                                                for (i, item) in self.dropdown_items.iter().enumerate() {
-                                                    let is_selected = i == self.dropdown_selected;
-                                                    let text = if self.dropdown_type == DropdownType::Hashtag {
-                                                        format!("#{}", item)
-                                                    } else {
-                                                        format!("/{}", item)
-                                                    };
+                                    egui::Area::new(egui::Id::new("autocomplete_dropdown"))
+                                        .pivot(egui::Align2::LEFT_TOP)
+                                        .interactable(true)
+                                        .order(egui::Order::Foreground)
+                                        .show(ui.ctx(), |ui| {
+                                            egui::Frame::popup(ui.style())
+                                                .fill(egui::Color32::from_rgb(0x2a, 0x2a, 0x3e))
+                                                .show(ui, |ui| {
+                                                    ui.set_min_width(200.0);
+                                                    ui.set_max_width(300.0);
+                                                    ui.label(
+                                                        egui::RichText::new(
+                                                            if self.dropdown_type == DropdownType::Command {
+                                                                "Commands:"
+                                                            } else {
+                                                                "Hashtags:"
+                                                            },
+                                                        )
+                                                        .weak()
+                                                        .size(10.0),
+                                                    );
+                                                    ui.add_space(2.0);
+                                                    egui::ScrollArea::vertical()
+                                                        .max_height(150.0)
+                                                        .show(ui, |ui| {
+                                                            for (i, item) in self.dropdown_items.iter().enumerate() {
+                                                                let is_selected = i == self.dropdown_selected;
+                                                                let text = if self.dropdown_type == DropdownType::Hashtag {
+                                                                    format!("#{}", item)
+                                                                } else {
+                                                                    format!("/{}", item)
+                                                                };
 
-                                                    let response = ui.selectable_label(is_selected, &text);
-                                                    if response.clicked() {
-                                                        // Handle selection
-                                                        let selected_item = item.clone();
-                                                        match self.dropdown_type {
-                                                            DropdownType::Command => {
-                                                                if let Some(replacement) = self.command_manager.execute(&selected_item) {
-                                                                    let cursor_pos = self.notes_content.len();
-                                                                    self.notes_content = CommandManager::insert_command(
-                                                                        &self.notes_content,
-                                                                        cursor_pos,
-                                                                        self.dropdown_start_pos,
-                                                                        &replacement,
-                                                                    );
+                                                                let response = ui.selectable_label(is_selected, &text);
+                                                                if response.clicked() {
+                                                                    // Handle selection
+                                                                    let selected_item = item.clone();
+                                                                    match self.dropdown_type {
+                                                                        DropdownType::Command => {
+                                                                            if let Some(replacement) = self.command_manager.execute(&selected_item) {
+                                                                                let cursor_pos = self.notes_content.len();
+                                                                                self.notes_content = CommandManager::insert_command(
+                                                                                    &self.notes_content,
+                                                                                    cursor_pos,
+                                                                                    self.dropdown_start_pos,
+                                                                                    &replacement,
+                                                                                );
+                                                                            }
+                                                                        }
+                                                                        DropdownType::Hashtag => {
+                                                                            let cursor_pos = self.notes_content.len();
+                                                                            self.notes_content = HashtagLibrary::insert_hashtag(
+                                                                                &self.notes_content,
+                                                                                cursor_pos,
+                                                                                self.dropdown_start_pos,
+                                                                                &selected_item,
+                                                                            );
+                                                                            self.hashtag_library.add(&selected_item);
+                                                                        }
+                                                                    }
+                                                                    self.dropdown_visible = false;
+                                                                    self.dropdown_items.clear();
+                                                                    self.focus_notes_input = true;
                                                                 }
                                                             }
-                                                            DropdownType::Hashtag => {
-                                                                let cursor_pos = self.notes_content.len();
-                                                                self.notes_content = HashtagLibrary::insert_hashtag(
-                                                                    &self.notes_content,
-                                                                    cursor_pos,
-                                                                    self.dropdown_start_pos,
-                                                                    &selected_item,
-                                                                );
-                                                                self.hashtag_library.add(&selected_item);
-                                                            }
-                                                        }
-                                                        self.dropdown_visible = false;
-                                                        self.focus_notes_input = true;
-                                                    }
-                                                }
-                                            });
-                                    });
+                                                        });
+                                                });
+                                        });
                                 }
                             }
                             NotesView::Preview => {
@@ -1663,113 +1677,140 @@ impl eframe::App for PomodoroApp {
                 });
         }
 
-        // Help dialog
+        // Help dialog - full window
         if self.show_help {
-            egui::Window::new("⌨️ Keyboard Shortcuts")
-                .collapsible(false)
-                .resizable(false)
-                .constrain(false)
-                .show(ctx, |ui| {
-                    ui.set_min_width(350.0);
-
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(20.0);
                     ui.label(
-                        egui::RichText::new("Timer Controls")
-                            .size(14.0)
-                            .strong()
-                            .color(text_color),
+                        egui::RichText::new("⌨️ Keyboard Shortcuts")
+                            .size(28.0)
+                            .color(text_color)
+                            .strong(),
                     );
-                    ui.add_space(5.0);
-                    
-                    let timer_shortcuts = [
-                        ("Space", "Start/Pause timer"),
-                        ("R", "Reset timer"),
-                    ];
-                    for (key, action) in timer_shortcuts {
-                        ui.horizontal(|ui| {
-                            ui.add_space(10.0);
-                            ui.label(
-                                egui::RichText::new(format!("{:<12}", key))
-                                    .monospace()
-                                    .color(egui::Color32::from_rgb(0x88, 0xcc, 0xff)),
-                            );
-                            ui.label(egui::RichText::new(action).color(text_color));
-                        });
-                    }
-
-                    ui.add_space(10.0);
-                    ui.separator();
-                    ui.add_space(10.0);
-
-                    ui.label(
-                        egui::RichText::new("Notes Editor")
-                            .size(14.0)
-                            .strong()
-                            .color(text_color),
-                    );
-                    ui.add_space(5.0);
-
-                    let notes_shortcuts = [
-                        ("Ctrl+P", "Format markdown & toggle preview"),
-                        ("Ctrl+D", "Insert timestamped bullet"),
-                        ("Tab", "Indent list item (on empty bullet)"),
-                        ("/", "Start slash command"),
-                        ("#", "Start hashtag autocomplete"),
-                        ("↑/↓", "Navigate dropdown suggestions"),
-                        ("Enter/Tab", "Select suggestion"),
-                        ("Esc", "Close dropdown"),
-                    ];
-                    for (key, action) in notes_shortcuts {
-                        ui.horizontal(|ui| {
-                            ui.add_space(10.0);
-                            ui.label(
-                                egui::RichText::new(format!("{:<12}", key))
-                                    .monospace()
-                                    .color(egui::Color32::from_rgb(0x88, 0xcc, 0xff)),
-                            );
-                            ui.label(egui::RichText::new(action).color(text_color));
-                        });
-                    }
-
-                    ui.add_space(10.0);
-                    ui.separator();
-                    ui.add_space(10.0);
-
-                    ui.label(
-                        egui::RichText::new("General")
-                            .size(14.0)
-                            .strong()
-                            .color(text_color),
-                    );
-                    ui.add_space(5.0);
-
-                    let general_shortcuts = [
-                        ("Ctrl+?", "Toggle this help menu"),
-                        ("S", "Open settings"),
-                    ];
-                    for (key, action) in general_shortcuts {
-                        ui.horizontal(|ui| {
-                            ui.add_space(10.0);
-                            ui.label(
-                                egui::RichText::new(format!("{:<12}", key))
-                                    .monospace()
-                                    .color(egui::Color32::from_rgb(0x88, 0xcc, 0xff)),
-                            );
-                            ui.label(egui::RichText::new(action).color(text_color));
-                        });
-                    }
-
-                    ui.add_space(15.0);
-                    ui.separator();
-                    ui.add_space(10.0);
-
-                    // Close button
-                    if ui
-                        .add(egui::Button::new("Close").fill(button_color).rounding(6.0))
-                        .clicked()
-                    {
-                        self.show_help = false;
-                    }
+                    ui.add_space(20.0);
                 });
+
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.add_space(40.0);
+                        
+                        ui.vertical(|ui| {
+                            ui.set_min_width(350.0);
+                            
+                            ui.label(
+                                egui::RichText::new("Timer Controls")
+                                    .size(16.0)
+                                    .strong()
+                                    .color(text_color),
+                            );
+                            ui.add_space(8.0);
+
+                            let timer_shortcuts = [
+                                ("Space", "Start/Pause timer"),
+                                ("R", "Reset timer"),
+                            ];
+                            for (key, action) in timer_shortcuts {
+                                ui.horizontal(|ui| {
+                                    ui.add_space(10.0);
+                                    ui.label(
+                                        egui::RichText::new(format!("{:<12}", key))
+                                            .monospace()
+                                            .color(egui::Color32::from_rgb(0x88, 0xcc, 0xff)),
+                                    );
+                                    ui.label(egui::RichText::new(action).color(text_color));
+                                });
+                            }
+                        });
+
+                        ui.add_space(40.0);
+
+                        ui.vertical(|ui| {
+                            ui.set_min_width(350.0);
+                            
+                            ui.label(
+                                egui::RichText::new("Notes Editor")
+                                    .size(16.0)
+                                    .strong()
+                                    .color(text_color),
+                            );
+                            ui.add_space(8.0);
+
+                            let notes_shortcuts = [
+                                ("Ctrl+P", "Format markdown & toggle preview"),
+                                ("Ctrl+D", "Insert timestamped bullet"),
+                                ("Tab", "Indent list item (on empty bullet)"),
+                                ("/", "Start slash command"),
+                                ("#", "Start hashtag autocomplete"),
+                                ("↑/↓", "Navigate dropdown suggestions"),
+                                ("Enter/Tab", "Select suggestion"),
+                                ("Esc", "Close dropdown"),
+                            ];
+                            for (key, action) in notes_shortcuts {
+                                ui.horizontal(|ui| {
+                                    ui.add_space(10.0);
+                                    ui.label(
+                                        egui::RichText::new(format!("{:<12}", key))
+                                            .monospace()
+                                            .color(egui::Color32::from_rgb(0x88, 0xcc, 0xff)),
+                                    );
+                                    ui.label(egui::RichText::new(action).color(text_color));
+                                });
+                            }
+                        });
+
+                        ui.add_space(40.0);
+
+                        ui.vertical(|ui| {
+                            ui.set_min_width(350.0);
+                            
+                            ui.label(
+                                egui::RichText::new("General")
+                                    .size(16.0)
+                                    .strong()
+                                    .color(text_color),
+                            );
+                            ui.add_space(8.0);
+
+                            let general_shortcuts = [
+                                ("Ctrl+?", "Toggle this help menu"),
+                                ("S", "Open settings"),
+                            ];
+                            for (key, action) in general_shortcuts {
+                                ui.horizontal(|ui| {
+                                    ui.add_space(10.0);
+                                    ui.label(
+                                        egui::RichText::new(format!("{:<12}", key))
+                                            .monospace()
+                                            .color(egui::Color32::from_rgb(0x88, 0xcc, 0xff)),
+                                    );
+                                    ui.label(egui::RichText::new(action).color(text_color));
+                                });
+                            }
+                        });
+                    });
+
+                    ui.add_space(30.0);
+                    ui.separator();
+                    ui.add_space(15.0);
+
+                    ui.vertical_centered(|ui| {
+                        if ui
+                            .add(
+                                egui::Button::new(egui::RichText::new("Close").color(text_color))
+                                    .fill(button_color)
+                                    .rounding(8.0)
+                                    .min_size(egui::vec2(100.0, 32.0)),
+                            )
+                            .clicked()
+                        {
+                            self.show_help = false;
+                        }
+                    });
+
+                    ui.add_space(20.0);
+                });
+            });
         }
     }
 }

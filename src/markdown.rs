@@ -132,9 +132,9 @@ fn is_list_line(trimmed: &str) -> bool {
 pub fn insert_date_bullet(content: &str) -> String {
     let date = Local::now().format("%Y-%m-%d %H:%M").to_string();
     if content.is_empty() {
-        format!("- [{}] ", date)
+        format!("- {} ", date)
     } else {
-        format!("- [{}] \n{}", date, content)
+        format!("- {} \n{}", date, content)
     }
 }
 
@@ -339,7 +339,9 @@ mod tests {
     #[test]
     fn test_insert_date_bullet_empty() {
         let result = insert_date_bullet("");
-        assert!(result.starts_with("- ["));
+        assert!(result.starts_with("- "));
+        // Should be format: "- YYYY-MM-DD HH:MM "
+        assert!(result.contains(" "));
         // Empty content should not have trailing newline
         assert!(!result.contains('\n'));
     }
@@ -347,9 +349,9 @@ mod tests {
     #[test]
     fn test_insert_date_bullet_with_content() {
         let result = insert_date_bullet("Existing content");
-        assert!(result.starts_with("- ["));
-        // Check for the space before newline (format is "- [DATE] \ncontent")
-        assert!(result.contains("] \nExisting content"));
+        assert!(result.starts_with("- "));
+        // Check for the space before newline (format is "- DATE \ncontent")
+        assert!(result.contains(" \nExisting content"));
     }
 
     // Tests for handle_list_continuation
