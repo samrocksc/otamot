@@ -1,0 +1,129 @@
+name: Leonardo Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  models: read
+
+jobs:
+  code-review:
+    name: Leonardo Reviews the Code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get PR Information
+        id: pr_info
+        run: |
+          # Get PR diff
+          gh pr diff ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} \
+            > /tmp/pr_diff.txt
+          
+          # Get PR metadata
+          gh pr view ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} \
+            --json files,title,body,additions,deletions,author \
+            > /tmp/pr_info.json
+          
+          # Extract values for the action
+          echo "title=$(jq -r '.title' /tmp/pr_info.json)" >> $GITHUB_OUTPUT
+          echo "additions=$(jq -r '.additions' /tmp/pr_info.json)" >> $GITHUB_OUTPUT
+          echo "deletions=$(jq -r '.deletions' /tmp/pr_info.json)" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run Leonardo Review
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            // Read Leonardo's soul
+            const leonardoSoul = fs.readFileSync('.agents/sub/leonardo/SOUL.md', 'utf8');
+            
+            // Read PR information
+            const prInfo = JSON.parse(fs.readFileSync('/tmp/pr_info.json', 'utf8'));
+            const diffContent = fs.readFileSync('/tmp/pr_diff.txt', 'utf8');
+            const diff = diffContent.substring(0, 25000); // Limit diff size
+            
+            // Get PR details
+            const title = '${{ steps.pr_info.outputs.title }}';
+            const additions = '${{ steps.pr_info.outputs.additions }}';
+            const deletions = '${{ steps.pr_info.outputs.deletions }}';
+            
+            // Build the system prompt
+            const systemPrompt = `You are Leonardo from the Ninja Turtles. You are a disciplined code reviewer.
+
+            ${leonardoSoul}
+
+            Respond ONLY with the markdown code review, nothing else. No preamble or intro text.`;
+            
+            // Build the user prompt
+            const changedFiles = prInfo.files.map(f => `- ${f.path}`).join('\n');
+            
+            const userPrompt = `## Pull Request Review Request
+
+            **Title:** ${title}
+            **Lines Added:** ${additions}
+            **Lines Deleted:** ${deletions}
+
+            ### Changed Files
+            ${changedFiles}
+
+            ### Diff
+            \`\`\`diff
+            ${diff}
+            \`\`\`
+
+            Provide your code review in markdown format with these sections:
+            - Overview
+            - 🏆 Strengths
+            - 🗿 Critical Issues (if any)
+            - ⚔️ Important Issues (if any)
+            - 🎋 Suggestions for Mastery
+            - Summary with verdict`;
+            
+            // Call GitHub Models API
+            const response = await fetch('https://models.inference.ai.azure.com/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.GITHUB_TOKEN}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                model: 'gpt-4o',
+                messages: [
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: userPrompt }
+                ],
+                max_tokens: 4096,
+                temperature: 0.7
+              })
+            });
+            
+            if (!response.ok) {
+              throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            const review = data.choices[0].message.content;
+            
+            // Post the review as a PR comment
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: review
+            });
+            
+            console.log('Leonardo has completed his review! 🐢⚔️');
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
