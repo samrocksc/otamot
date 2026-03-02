@@ -784,34 +784,43 @@ impl eframe::App for PomodoroApp {
             }
         });
 
-        // Settings dialog
+        // Settings panel - full window
         if self.show_settings {
-            egui::Window::new("Settings")
-                .collapsible(false)
-                .resizable(false)
-                .constrain(false)
-                .show(ctx, |ui| {
-                    ui.set_min_width(350.0);
-
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(20.0);
+                    
+                    ui.label(
+                        egui::RichText::new("⚙ Settings")
+                            .size(28.0)
+                            .color(text_color)
+                            .strong(),
+                    );
+                    
+                    ui.add_space(30.0);
+                    
                     // Work duration
                     ui.horizontal(|ui| {
+                        ui.add_space(40.0);
                         ui.label(
                             egui::RichText::new(format!(
                                 "Work Duration: {} min",
                                 self.temp_work_duration
                             ))
+                            .size(18.0)
                             .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
                         );
-
+                        ui.add_space(20.0);
                         if ui
-                            .add(egui::Button::new("-").fill(button_color).rounding(6.0))
+                            .add(egui::Button::new("-").fill(button_color).rounding(6.0).min_size(egui::vec2(40.0, 30.0)))
                             .clicked()
                         {
                             self.temp_work_duration =
                                 self.temp_work_duration.saturating_sub(1).max(1);
                         }
+                        ui.add_space(5.0);
                         if ui
-                            .add(egui::Button::new("+").fill(button_color).rounding(6.0))
+                            .add(egui::Button::new("+").fill(button_color).rounding(6.0).min_size(egui::vec2(40.0, 30.0)))
                             .clicked()
                         {
                             self.temp_work_duration =
@@ -819,27 +828,30 @@ impl eframe::App for PomodoroApp {
                         }
                     });
 
-                    ui.add_space(10.0);
+                    ui.add_space(15.0);
 
                     // Break duration
                     ui.horizontal(|ui| {
+                        ui.add_space(40.0);
                         ui.label(
                             egui::RichText::new(format!(
                                 "Break Duration: {} min",
                                 self.temp_break_duration
                             ))
+                            .size(18.0)
                             .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
                         );
-
+                        ui.add_space(15.0);
                         if ui
-                            .add(egui::Button::new("-").fill(button_color).rounding(6.0))
+                            .add(egui::Button::new("-").fill(button_color).rounding(6.0).min_size(egui::vec2(40.0, 30.0)))
                             .clicked()
                         {
                             self.temp_break_duration =
                                 self.temp_break_duration.saturating_sub(1).max(1);
                         }
+                        ui.add_space(5.0);
                         if ui
-                            .add(egui::Button::new("+").fill(button_color).rounding(6.0))
+                            .add(egui::Button::new("+").fill(button_color).rounding(6.0).min_size(egui::vec2(40.0, 30.0)))
                             .clicked()
                         {
                             self.temp_break_duration =
@@ -847,19 +859,26 @@ impl eframe::App for PomodoroApp {
                         }
                     });
 
-                    ui.add_space(15.0);
+                    ui.add_space(20.0);
 
                     // Notes directory
-                    ui.label(
-                        egui::RichText::new("Notes Directory:")
-                            .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
-                    );
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.temp_notes_directory)
-                            .desired_width(300.0),
-                    );
+                    ui.horizontal(|ui| {
+                        ui.add_space(40.0);
+                        ui.label(
+                            egui::RichText::new("Notes Directory:")
+                                .size(16.0)
+                                .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
+                        );
+                    });
+                    ui.horizontal(|ui| {
+                        ui.add_space(40.0);
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.temp_notes_directory)
+                                .desired_width(350.0),
+                        );
+                    });
 
-                    ui.add_space(15.0);
+                    ui.add_space(20.0);
 
                     // Survey toggle
                     let survey_toggle_label = if self.config.survey_enabled {
@@ -867,55 +886,65 @@ impl eframe::App for PomodoroApp {
                     } else {
                         "📊 Surveys: OFF"
                     };
-                    if ui
-                        .add(
-                            egui::Button::new(
-                                egui::RichText::new(survey_toggle_label).color(text_color),
+                    ui.horizontal(|ui| {
+                        ui.add_space(40.0);
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    egui::RichText::new(survey_toggle_label).size(16.0).color(text_color),
+                                )
+                                .fill(button_color)
+                                .rounding(6.0),
                             )
-                            .fill(button_color)
-                            .rounding(6.0),
-                        )
-                        .clicked()
-                    {
-                        self.config.survey_enabled = !self.config.survey_enabled;
-                        let _ = self.config.save();
-                    }
+                            .clicked()
+                        {
+                            self.config.survey_enabled = !self.config.survey_enabled;
+                            let _ = self.config.save();
+                        }
+                    });
 
-                    ui.add_space(10.0);
+                    ui.add_space(15.0);
 
                     // Reset survey data button
-                    if ui
-                        .add(
-                            egui::Button::new(
-                                egui::RichText::new("🗑 Reset Survey Data")
-                                    .color(egui::Color32::from_rgb(0xe7, 0x4c, 0x3c)),
+                    ui.horizontal(|ui| {
+                        ui.add_space(40.0);
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    egui::RichText::new("🗑 Reset Survey Data")
+                                        .size(14.0)
+                                        .color(egui::Color32::from_rgb(0xe7, 0x4c, 0x3c)),
+                                )
+                                .fill(button_color)
+                                .rounding(6.0),
                             )
-                            .fill(button_color)
-                            .rounding(6.0),
-                        )
-                        .clicked()
-                    {
-                        self.reset_survey_data();
-                    }
+                            .clicked()
+                        {
+                            self.reset_survey_data();
+                        }
+                    });
 
-                    ui.add_space(20.0);
+                    ui.add_space(40.0);
 
                     // Dialog buttons
                     ui.horizontal(|ui| {
+                        ui.add_space(40.0);
                         if ui
-                            .add(egui::Button::new("Cancel").fill(button_color).rounding(6.0))
+                            .add(egui::Button::new("Cancel").fill(button_color).rounding(8.0).min_size(egui::vec2(80.0, 35.0)))
                             .clicked()
                         {
                             self.show_settings = false;
                         }
+                        ui.add_space(15.0);
                         if ui
-                            .add(egui::Button::new("Save").fill(button_color).rounding(6.0))
+                            .add(egui::Button::new("Save").fill(egui::Color32::from_rgb(0x27, 0xae, 0x60)).rounding(8.0).min_size(egui::vec2(80.0, 35.0)))
                             .clicked()
                         {
                             self.save_settings();
                         }
                     });
                 });
+            });
         }
 
         // Survey dialog
