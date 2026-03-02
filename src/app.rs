@@ -226,6 +226,22 @@ impl PomodoroApp {
             TimerMode::Break => "break",
         };
 
+        // Extract hashtags from notes content
+        let mut tags = vec!["pomodoro".to_string(), mode.to_string()];
+        let content_tags = self.extract_hashtags(&self.notes_content);
+        for tag in content_tags {
+            if !tags.contains(&tag) {
+                tags.push(tag);
+            }
+        }
+
+        // Format tags as YAML list
+        let tags_yaml = tags
+            .iter()
+            .map(|t| format!("  - {}", t))
+            .collect::<Vec<_>>()
+            .join("\n");
+
         format!(
             r#"---
 title: "Pomodoro Session"
@@ -236,8 +252,7 @@ duration_minutes: {}
 mode: {}
 sessions_completed: {}
 tags:
-  - pomodoro
-  - {}
+{}
 ---
 
 "#,
@@ -247,8 +262,28 @@ tags:
             self.config.work_duration,
             mode,
             self.sessions_completed,
-            mode
+            tags_yaml
         )
+    }
+
+    /// Extract hashtags from text content
+    fn extract_hashtags(&self, text: &str) -> Vec<String> {
+        let mut tags = Vec::new();
+        for word in text.split_whitespace() {
+            if word.starts_with('#') && word.len() > 1 {
+                // Extract hashtag, removing any trailing punctuation
+                let tag = word
+                    .trim_start_matches('#')
+                    .trim_end_matches(|c: char| !c.is_alphanumeric() && c != '_')
+                    .to_lowercase();
+                if !tag.is_empty() && tag.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                    if !tags.contains(&tag) {
+                        tags.push(tag);
+                    }
+                }
+            }
+        }
+        tags
     }
 
     fn save_notes(&mut self) {
