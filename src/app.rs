@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 // Since app.rs is included from main.rs, we use otamot:: for library imports
 use otamot::bell::Bell;
 use otamot::config::{Config, NotesView};
+use otamot::markdown::{format_markdown, insert_date_bullet};
 use otamot::survey::SurveyData;
 use otamot::timer::TimerMode;
 
@@ -419,6 +420,10 @@ impl eframe::App for PomodoroApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Handle Ctrl+P hotkey to toggle Edit/Preview
         if ctx.input(|i| i.key_pressed(egui::Key::P) && i.modifiers.ctrl) && self.notes_enabled {
+            // Format markdown before switching to preview
+            if self.notes_view == NotesView::Edit {
+                self.notes_content = format_markdown(&self.notes_content);
+            }
             self.notes_view = match self.notes_view {
                 NotesView::Edit => NotesView::Preview,
                 NotesView::Preview => {
@@ -426,6 +431,36 @@ impl eframe::App for PomodoroApp {
                     NotesView::Edit
                 }
             };
+        }
+
+        // Handle Ctrl+D hotkey to insert date bullet
+        if ctx.input(|i| i.key_pressed(egui::Key::D) && i.modifiers.ctrl)
+            && self.notes_enabled
+            && self.notes_view == NotesView::Edit
+        {
+            self.notes_content = insert_date_bullet(&self.notes_content);
+            self.focus_notes_input = true;
+        }
+
+        // Handle Tab key to indent list items
+        if ctx.input(|i| i.key_pressed(egui::Key::Tab))
+            && self.notes_enabled
+            && self.notes_view == NotesView::Edit
+        {
+            // Simple approach: if content ends with empty bullet "- " or "* ", indent it
+            let trimmed = self.notes_content.trim_end();
+            if trimmed.ends_with("- ") || trimmed.ends_with("* ") {
+                // Find the last line and indent it
+                if let Some(last_newline) = self.notes_content.rfind('\n') {
+                    let before = &self.notes_content[..last_newline + 1];
+                    let after = &self.notes_content[last_newline + 1..];
+                    // Indent by 2 spaces
+                    self.notes_content = format!("{}  {}", before, after);
+                } else {
+                    // Only one line, indent entire content
+                    self.notes_content = format!("  {}", self.notes_content);
+                }
+            }
         }
 
         // Tick the timer
@@ -789,16 +824,16 @@ impl eframe::App for PomodoroApp {
             egui::CentralPanel::default().show(ctx, |ui| {
                 ui.vertical_centered(|ui| {
                     ui.add_space(20.0);
-                    
+
                     ui.label(
                         egui::RichText::new("⚙ Settings")
                             .size(28.0)
                             .color(text_color)
                             .strong(),
                     );
-                    
+
                     ui.add_space(30.0);
-                    
+
                     // Work duration
                     ui.horizontal(|ui| {
                         ui.add_space(40.0);
@@ -812,7 +847,12 @@ impl eframe::App for PomodoroApp {
                         );
                         ui.add_space(20.0);
                         if ui
-                            .add(egui::Button::new("-").fill(button_color).rounding(6.0).min_size(egui::vec2(40.0, 30.0)))
+                            .add(
+                                egui::Button::new("-")
+                                    .fill(button_color)
+                                    .rounding(6.0)
+                                    .min_size(egui::vec2(40.0, 30.0)),
+                            )
                             .clicked()
                         {
                             self.temp_work_duration =
@@ -820,7 +860,12 @@ impl eframe::App for PomodoroApp {
                         }
                         ui.add_space(5.0);
                         if ui
-                            .add(egui::Button::new("+").fill(button_color).rounding(6.0).min_size(egui::vec2(40.0, 30.0)))
+                            .add(
+                                egui::Button::new("+")
+                                    .fill(button_color)
+                                    .rounding(6.0)
+                                    .min_size(egui::vec2(40.0, 30.0)),
+                            )
                             .clicked()
                         {
                             self.temp_work_duration =
@@ -843,7 +888,12 @@ impl eframe::App for PomodoroApp {
                         );
                         ui.add_space(15.0);
                         if ui
-                            .add(egui::Button::new("-").fill(button_color).rounding(6.0).min_size(egui::vec2(40.0, 30.0)))
+                            .add(
+                                egui::Button::new("-")
+                                    .fill(button_color)
+                                    .rounding(6.0)
+                                    .min_size(egui::vec2(40.0, 30.0)),
+                            )
                             .clicked()
                         {
                             self.temp_break_duration =
@@ -851,7 +901,12 @@ impl eframe::App for PomodoroApp {
                         }
                         ui.add_space(5.0);
                         if ui
-                            .add(egui::Button::new("+").fill(button_color).rounding(6.0).min_size(egui::vec2(40.0, 30.0)))
+                            .add(
+                                egui::Button::new("+")
+                                    .fill(button_color)
+                                    .rounding(6.0)
+                                    .min_size(egui::vec2(40.0, 30.0)),
+                            )
                             .clicked()
                         {
                             self.temp_break_duration =
@@ -891,7 +946,9 @@ impl eframe::App for PomodoroApp {
                         if ui
                             .add(
                                 egui::Button::new(
-                                    egui::RichText::new(survey_toggle_label).size(16.0).color(text_color),
+                                    egui::RichText::new(survey_toggle_label)
+                                        .size(16.0)
+                                        .color(text_color),
                                 )
                                 .fill(button_color)
                                 .rounding(6.0),
@@ -930,14 +987,24 @@ impl eframe::App for PomodoroApp {
                     ui.horizontal(|ui| {
                         ui.add_space(40.0);
                         if ui
-                            .add(egui::Button::new("Cancel").fill(button_color).rounding(8.0).min_size(egui::vec2(80.0, 35.0)))
+                            .add(
+                                egui::Button::new("Cancel")
+                                    .fill(button_color)
+                                    .rounding(8.0)
+                                    .min_size(egui::vec2(80.0, 35.0)),
+                            )
                             .clicked()
                         {
                             self.show_settings = false;
                         }
                         ui.add_space(15.0);
                         if ui
-                            .add(egui::Button::new("Save").fill(egui::Color32::from_rgb(0x27, 0xae, 0x60)).rounding(8.0).min_size(egui::vec2(80.0, 35.0)))
+                            .add(
+                                egui::Button::new("Save")
+                                    .fill(egui::Color32::from_rgb(0x27, 0xae, 0x60))
+                                    .rounding(8.0)
+                                    .min_size(egui::vec2(80.0, 35.0)),
+                            )
                             .clicked()
                         {
                             self.save_settings();
