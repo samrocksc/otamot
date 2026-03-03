@@ -53,9 +53,6 @@ pub struct Config {
 
     #[serde(default = "default_true")]
     pub todo_enabled: bool,
-
-    #[serde(default)]
-    pub vim_enabled: bool,
 }
 
 fn default_true() -> bool {
@@ -101,7 +98,6 @@ impl Default for Config {
             language: Language::default(),
             slash_commands: default_slash_commands(),
             todo_enabled: true,
-            vim_enabled: false,
         }
     }
 }
@@ -200,7 +196,6 @@ mod tests {
             language: Language::German,
             slash_commands: HashMap::new(),
             todo_enabled: true,
-            vim_enabled: false,
         };
 
         let json = serde_json::to_string(&config).unwrap();
@@ -283,7 +278,6 @@ mod tests {
             language: Language::English,
             slash_commands: HashMap::new(),
             todo_enabled: true,
-            vim_enabled: false,
         };
 
         config.save_to_path(&config_path).unwrap();

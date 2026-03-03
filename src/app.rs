@@ -13,8 +13,7 @@ use otamot::survey::SurveyData;
 use otamot::timer::TimerMode;
 use otamot::todo::TodoList;
 use otamot::ui_components;
-use otamot::vim::{VimMode, VimState};
-use otamot::easy_mark::highlighter::MemoizedEasymarkHighlighter;
+use otamot::easy_mark::editor::EasyMarkEditor;
 
 /// Dropdown state for autocomplete
 #[derive(Debug, Clone, PartialEq)]
@@ -83,8 +82,7 @@ pub struct PomodoroApp {
     survey_what_helped: String,
     survey_what_hurt: String,
     todo_enabled: bool,
-    vim_state: VimState,
-    highlighter: MemoizedEasymarkHighlighter,
+    editor: EasyMarkEditor,
 }
 
 impl PomodoroApp {
@@ -126,8 +124,7 @@ impl PomodoroApp {
             todo_list: TodoList::load(),
             todo_input: String::new(),
             todo_enabled: config.todo_enabled,
-            vim_state: VimState::default(),
-            highlighter: MemoizedEasymarkHighlighter::default(),
+            editor: EasyMarkEditor::default(),
 
             sessions_completed: 0,
             show_survey: false,
@@ -760,27 +757,7 @@ impl PomodoroApp {
                         self.focus_notes_input = false;
                     }
 
-                        if self.config.vim_enabled {
-                            if self.vim_state.handle_input(ctx, &mut self.notes_content, &mut self.notes_cursor_pos) {
-                                self.requested_cursor_pos = Some(self.notes_cursor_pos);
-                            }
-                        }
-
-                    let mut layouter = |ui: &egui::Ui, string: &str, wrap_width: f32| {
-                        let mut layout_job = self.highlighter.highlight(ui.style(), string);
-                        layout_job.wrap.max_width = wrap_width;
-                        ui.fonts(|f| f.layout_job(layout_job))
-                    };
-
-                    let output = egui::TextEdit::multiline(&mut self.notes_content)
-                        .id(egui::Id::new("notes_text_input"))
-                        .desired_width(f32::INFINITY)
-                        .desired_rows(12)
-                        .font(egui::TextStyle::Monospace)
-                        .layouter(&mut layouter)
-                        .show(ui);
-
-                    let response = output.response;
+                    let response = self.editor.show(ui, &mut self.notes_content);
 
                     // Track cursor position for Tab handling
                     if let Some(state) = egui::TextEdit::load_state(ui.ctx(), response.id) {
@@ -794,42 +771,6 @@ impl PomodoroApp {
                             state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(pos))));
                             state.store(ui.ctx(), response.id);
                             self.notes_cursor_pos = pos;
-                        }
-                    }
-
-                    if self.config.vim_enabled {
-                        ui.add_space(4.0);
-                        let mode_text = match self.vim_state.mode {
-                            VimMode::Normal => "NORMAL",
-                            VimMode::Insert => "INSERT",
-                            VimMode::Visual => "VISUAL",
-                        };
-                        ui.label(egui::RichText::new(mode_text).size(10.0).strong().color(egui::Color32::from_rgb(0x88, 0xcc, 0xff)));
-
-                        // To keep the cursor visible, we need the TextEdit to have focus even in Normal mode
-                        if self.vim_state.mode == VimMode::Normal || self.vim_state.mode_changed {
-                            ui.ctx().memory_mut(|mem| mem.request_focus(response.id));
-                        }
-
-                        // Draw block cursor in Normal mode
-                        if self.vim_state.mode == VimMode::Normal && !ui.ui_contains_pointer() {
-                             // Only draw if we have focus and are in Normal mode
-                             if ui.ctx().memory(|mem| mem.has_focus(response.id)) {
-                                 if let Some(state) = egui::TextEdit::load_state(ui.ctx(), response.id) {
-                                     let ccursor = state.cursor.char_range().map(|r| r.primary).unwrap_or_default();
-                                     let cursor = output.galley.from_ccursor(ccursor);
-                                     let rect = output.galley.pos_from_cursor(&cursor);
-                                     
-                                     let mut block_rect = rect;
-                                     block_rect.set_width(8.0); 
-                                     
-                                     ui.painter().with_clip_rect(response.rect).rect_filled(
-                                         block_rect.translate(output.galley_pos.to_vec2()), 
-                                         0.0, 
-                                         egui::Color32::from_rgba_unmultiplied(136, 204, 255, 120)
-                                     );
-                                 }
-                             }
                         }
                     }
 
@@ -944,10 +885,6 @@ impl PomodoroApp {
                             ui.add_space(40.0);
                             if ui.add(egui::Button::new(egui::RichText::new(if self.config.survey_enabled { self.t.surveys_on() } else { self.t.surveys_off() }).color(text_color)).fill(button_color)).clicked() {
                                 self.config.survey_enabled = !self.config.survey_enabled; let _ = self.config.save();
-                            }
-                            ui.add_space(15.0);
-                            if ui.add(egui::Button::new(egui::RichText::new(if self.config.vim_enabled { "Vim Mode: ON" } else { "Vim Mode: OFF" }).color(text_color)).fill(button_color)).clicked() {
-                                self.config.vim_enabled = !self.config.vim_enabled; let _ = self.config.save();
                             }
                         });
                         ui.add_space(15.0);
