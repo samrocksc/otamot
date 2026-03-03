@@ -513,12 +513,12 @@ impl eframe::App for PomodoroApp {
 
         // Main UI Layout
         egui::CentralPanel::default().show(ctx, |ui| {
-            if self.notes_enabled {
+            if self.notes_enabled || self.todo_enabled {
                 // Get the full available height before entering horizontal layout
                 let full_height = ui.available_height();
                 let total_width = ui.available_width();
                 let sidebar_width = 250.0;
-                let notes_width = total_width - sidebar_width - 20.0; // Subtract padding
+                let right_width = total_width - sidebar_width - 20.0; // Subtract padding
 
                 ui.horizontal_top(|ui| {
                     // Side Pillar 1: Timer and basic controls
@@ -535,14 +535,14 @@ impl eframe::App for PomodoroApp {
 
                     ui.separator();
 
-                    // Side Pillar 2: Notes area and TODOs
-                    ui.allocate_ui(egui::vec2(notes_width, full_height), |ui| {
+                    // Side Pillar 2: Notes area and/or TODOs
+                    ui.allocate_ui(egui::vec2(right_width, full_height), |ui| {
                         ui.vertical(|ui| {
                             egui::ScrollArea::vertical()
-                                .id_salt("notes_area_scroll")
+                                .id_salt("right_pillar_scroll")
                                 .auto_shrink([false, false])
                                 .show(ui, |ui| {
-                                    self.render_notes_column(ctx, ui, text_color, tab_active_color, tab_inactive_color, button_color);
+                                    self.render_right_column(ctx, ui, text_color, tab_active_color, tab_inactive_color, button_color);
                                 });
                         });
                     });
@@ -660,58 +660,64 @@ impl PomodoroApp {
         ui.label(egui::RichText::new(self.t.sessions_completed_label(self.sessions_completed)).size(12.0).color(egui::Color32::from_rgb(0x88, 0x88, 0x88)));
     }
 
-    fn render_notes_column(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, text_color: egui::Color32, active_color: egui::Color32, inactive_color: egui::Color32, button_color: egui::Color32) {
-        // Tab buttons
-        ui.horizontal(|ui| {
-            let edit_color = if self.notes_view == NotesView::Edit { active_color } else { inactive_color };
-            let preview_color = if self.notes_view == NotesView::Preview { active_color } else { inactive_color };
-            if ui.add(egui::Button::new(egui::RichText::new(self.t.edit_tab()).size(12.0).color(text_color)).fill(edit_color).rounding(4.0)).clicked() {
-                self.notes_view = NotesView::Edit;
-                self.focus_notes_input = true;
-            }
-            if ui.add(egui::Button::new(egui::RichText::new(self.t.preview_tab()).size(12.0).color(text_color)).fill(preview_color).rounding(4.0)).clicked() {
-                self.notes_view = NotesView::Preview;
-            }
-        });
-
-        ui.add_space(5.0);
-        match self.notes_view {
-            NotesView::Edit => {
-                if self.focus_notes_input {
-                    ctx.memory_mut(|mem| mem.request_focus(egui::Id::new("notes_text_input")));
-                    self.focus_notes_input = false;
+    fn render_right_column(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, text_color: egui::Color32, active_color: egui::Color32, inactive_color: egui::Color32, button_color: egui::Color32) {
+        // Render notes section if enabled
+        if self.notes_enabled {
+            // Tab buttons
+            ui.horizontal(|ui| {
+                let edit_color = if self.notes_view == NotesView::Edit { active_color } else { inactive_color };
+                let preview_color = if self.notes_view == NotesView::Preview { active_color } else { inactive_color };
+                if ui.add(egui::Button::new(egui::RichText::new(self.t.edit_tab()).size(12.0).color(text_color)).fill(edit_color).rounding(4.0)).clicked() {
+                    self.notes_view = NotesView::Edit;
+                    self.focus_notes_input = true;
                 }
-                
-                let output = ui.add(egui::TextEdit::multiline(&mut self.notes_content)
-                    .id(egui::Id::new("notes_text_input"))
-                    .desired_width(f32::INFINITY)
-                    .desired_rows(12)
-                    .font(egui::TextStyle::Monospace));
+                if ui.add(egui::Button::new(egui::RichText::new(self.t.preview_tab()).size(12.0).color(text_color)).fill(preview_color).rounding(4.0)).clicked() {
+                    self.notes_view = NotesView::Preview;
+                }
+            });
 
-                // Track cursor position for Tab handling
-                if let Some(state) = egui::TextEdit::load_state(ui.ctx(), output.id) {
-                    if let Some(range) = state.cursor.char_range() {
-                        self.notes_cursor_pos = range.primary.index;
+            ui.add_space(5.0);
+            match self.notes_view {
+                NotesView::Edit => {
+                    if self.focus_notes_input {
+                        ctx.memory_mut(|mem| mem.request_focus(egui::Id::new("notes_text_input")));
+                        self.focus_notes_input = false;
                     }
-                }
 
-                if let Some(pos) = self.requested_cursor_pos.take() {
-                    if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), output.id) {
-                        state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(pos))));
-                        state.store(ui.ctx(), output.id);
-                        self.notes_cursor_pos = pos;
+                    let output = ui.add(egui::TextEdit::multiline(&mut self.notes_content)
+                        .id(egui::Id::new("notes_text_input"))
+                        .desired_width(f32::INFINITY)
+                        .desired_rows(12)
+                        .font(egui::TextStyle::Monospace));
+
+                    // Track cursor position for Tab handling
+                    if let Some(state) = egui::TextEdit::load_state(ui.ctx(), output.id) {
+                        if let Some(range) = state.cursor.char_range() {
+                            self.notes_cursor_pos = range.primary.index;
+                        }
                     }
+
+                    if let Some(pos) = self.requested_cursor_pos.take() {
+                        if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), output.id) {
+                            state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(pos))));
+                            state.store(ui.ctx(), output.id);
+                            self.notes_cursor_pos = pos;
+                        }
+                    }
+                    self.render_dropdown(ui);
                 }
-                self.render_dropdown(ui);
-            }
-            NotesView::Preview => {
-                // We render preview without an internal scroll here, let the pillar scroll handle it
-                self.render_markdown_preview(ui);
+                NotesView::Preview => {
+                    // We render preview without an internal scroll here, let the pillar scroll handle it
+                    self.render_markdown_preview(ui);
+                }
             }
         }
 
+        // Render TODO section if enabled
         if self.todo_enabled {
-            ui.add_space(30.0);
+            if self.notes_enabled {
+                ui.add_space(30.0);
+            }
             ui_components::render_todo_panel(ui, &mut self.todo_list, &mut self.todo_input, &self.t, text_color, button_color);
         }
     }
@@ -746,12 +752,12 @@ impl PomodoroApp {
                 self.notes_enabled = !self.notes_enabled; self.config.notes_enabled = self.notes_enabled; let _ = self.config.save();
             }
             ui.add_space(10.0);
+            if ui.add(egui::Button::new(egui::RichText::new(if self.todo_enabled { self.t.todo_on() } else { self.t.todo_off() }).color(text_color)).fill(button_color).rounding(8.0)).clicked() {
+                self.todo_enabled = !self.todo_enabled; self.config.todo_enabled = self.todo_enabled; let _ = self.config.save();
+            }
+            ui.add_space(10.0);
             ui.label(egui::RichText::new(self.t.sessions_completed_label(self.sessions_completed)).size(12.0).color(egui::Color32::from_rgb(0x88, 0x88, 0x88)));
             if ui.add(egui::Button::new(egui::RichText::new(self.t.help_button()).color(text_color)).fill(button_color).rounding(8.0)).clicked() { self.show_help = true; }
-            
-            if self.todo_enabled {
-                ui_components::render_todo_panel(ui, &mut self.todo_list, &mut self.todo_input, &self.t, text_color, button_color);
-            }
         });
     }
 
