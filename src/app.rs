@@ -376,6 +376,9 @@ impl eframe::App for PomodoroApp {
                     ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab));
                     ctx.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab));
 
+                    // Force focus back to the editor
+                    ctx.memory_mut(|mem| mem.request_focus(egui::Id::new("notes_text_input")));
+
                     // Get byte position from character position
                     let byte_pos = self.notes_content.char_indices()
                         .nth(self.notes_cursor_pos)
@@ -739,14 +742,6 @@ impl PomodoroApp {
                 }
                 if self.notes_enabled {
                     ui.add_space(5.0);
-                    if self.config.vim_enabled {
-                        let mode_text = match self.vim_state.mode {
-                            VimMode::Normal => "NORMAL",
-                            VimMode::Insert => "INSERT",
-                            VimMode::Visual => "VISUAL",
-                        };
-                        ui.label(egui::RichText::new(mode_text).size(10.0).strong().color(egui::Color32::from_rgb(0x88, 0xcc, 0xff)));
-                    }
                 }
 
                 if ui.add(egui::Button::new(egui::RichText::new(self.t.preview_tab()).size(12.0).color(text_color)).fill(preview_color).rounding(4.0)).clicked() {
@@ -790,6 +785,22 @@ impl PomodoroApp {
                             self.notes_cursor_pos = pos;
                         }
                     }
+
+                    if self.config.vim_enabled {
+                        ui.add_space(4.0);
+                        let mode_text = match self.vim_state.mode {
+                            VimMode::Normal => "NORMAL",
+                            VimMode::Insert => "INSERT",
+                            VimMode::Visual => "VISUAL",
+                        };
+                        ui.label(egui::RichText::new(mode_text).size(10.0).strong().color(egui::Color32::from_rgb(0x88, 0xcc, 0xff)));
+
+                        // To keep the cursor visible, we need the TextEdit to have focus even in Normal mode
+                        if self.vim_state.mode == VimMode::Normal || self.vim_state.mode_changed {
+                            ui.ctx().memory_mut(|mem| mem.request_focus(output.id));
+                        }
+                    }
+
                     self.render_dropdown(ui);
                 }
                 NotesView::Preview => {

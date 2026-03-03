@@ -23,6 +23,8 @@ pub struct VimState {
     pub yank_buffer: String,
     #[serde(skip)]
     pub pending_operator: Option<char>,
+    #[serde(skip)]
+    pub mode_changed: bool,
 }
 
 impl Default for VimState {
@@ -32,12 +34,14 @@ impl Default for VimState {
             last_col: 0,
             yank_buffer: String::new(),
             pending_operator: None,
+            mode_changed: false,
         }
     }
 }
 
 impl VimState {
     pub fn handle_input(&mut self, ctx: &egui::Context, content: &mut String, cursor_pos: &mut usize) -> bool {
+        self.mode_changed = false;
         let mut consumed = false;
         
         let events = ctx.input(|i| i.events.clone());
@@ -61,7 +65,9 @@ impl VimState {
                     } else if self.mode == VimMode::Insert {
                         if key == egui::Key::Escape {
                             self.mode = VimMode::Normal;
+                            self.mode_changed = true;
                             self.pending_operator = None;
+                            consumed = true;
                             // Move cursor back one if possible (Vim behavior)
                             if *cursor_pos > 0 {
                                 let line_start = self.get_line_start(content, *cursor_pos);
@@ -69,7 +75,6 @@ impl VimState {
                                     *cursor_pos -= 1;
                                 }
                             }
-                            consumed = true;
                         }
                     }
                 }
@@ -102,15 +107,18 @@ impl VimState {
         match ch {
             'i' => {
                 self.mode = VimMode::Insert;
+                self.mode_changed = true;
                 true
             }
             'I' => {
                 *cursor_pos = self.get_line_start(content, *cursor_pos);
                 self.mode = VimMode::Insert;
+                self.mode_changed = true;
                 true
             }
             'a' => {
                 self.mode = VimMode::Insert;
+                self.mode_changed = true;
                 let total_chars = content.chars().count();
                 if *cursor_pos < total_chars {
                     // Only move forward if not at the absolute end of the file
@@ -123,6 +131,7 @@ impl VimState {
                 let line_end = self.get_line_end(content, *cursor_pos);
                 *cursor_pos = line_end;
                 self.mode = VimMode::Insert;
+                self.mode_changed = true;
                 true
             }
             'o' => {
@@ -131,6 +140,7 @@ impl VimState {
                  content.insert_str(byte_pos, "\n");
                  *cursor_pos = line_end + 1;
                  self.mode = VimMode::Insert;
+                 self.mode_changed = true;
                  true
             }
             'O' => {
@@ -139,6 +149,7 @@ impl VimState {
                 content.insert_str(byte_pos, "\n");
                 *cursor_pos = line_start;
                 self.mode = VimMode::Insert;
+                self.mode_changed = true;
                 true
             }
             'h' => {
