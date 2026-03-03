@@ -373,6 +373,59 @@ impl eframe::App for PomodoroApp {
             self.show_help = !self.show_help;
         }
 
+        // Handle Tab key to indent list items or navigate dropdown
+        if ctx.input(|i| i.key_pressed(egui::Key::Tab))
+            && self.notes_enabled
+            && self.notes_view == NotesView::Edit
+        {
+            let is_focused = ctx.memory(|mem| mem.has_focus(egui::Id::new("notes_text_input")));
+            let shift = ctx.input(|i| i.modifiers.shift);
+            
+            if self.dropdown_visible {
+                if !self.dropdown_items.is_empty() {
+                    if shift {
+                        self.dropdown_selected = if self.dropdown_selected == 0 { self.dropdown_items.len() - 1 } else { self.dropdown_selected - 1 };
+                    } else {
+                        self.dropdown_selected = (self.dropdown_selected + 1) % self.dropdown_items.len();
+                    }
+                    ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab));
+                    ctx.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab));
+                }
+            } else if is_focused {
+                // Prevent focus escapement
+                ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab));
+                ctx.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab));
+                
+                if shift {
+                    // Handle Outdent (Shift+Tab)
+                    if self.notes_content.ends_with("  ") {
+                        self.notes_content.truncate(self.notes_content.len() - 2);
+                        self.requested_cursor_pos = Some(self.notes_content.chars().count());
+                    } else if self.notes_content.ends_with('\t') {
+                        self.notes_content.truncate(self.notes_content.len() - 1);
+                        self.requested_cursor_pos = Some(self.notes_content.chars().count());
+                    }
+                } else {
+                    // Handle Indent (Tab)
+                    let trimmed = self.notes_content.trim_end();
+                    if trimmed.ends_with("- ") || trimmed.ends_with("* ") {
+                        // Special case: indenting a bullet
+                        if let Some(last_newline) = self.notes_content.rfind('\n') {
+                            let before = &self.notes_content[..last_newline + 1];
+                            let after = &self.notes_content[last_newline + 1..];
+                            self.notes_content = format!("{}  {}", before, after);
+                        } else {
+                            self.notes_content = format!("  {}", self.notes_content);
+                        }
+                    } else {
+                        // Standard tab behavior (insert spaces)
+                        self.notes_content.push_str("  ");
+                    }
+                    self.requested_cursor_pos = Some(self.notes_content.chars().count());
+                }
+            }
+        }
+
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             if self.dropdown_visible {
                 self.dropdown_visible = false;
@@ -583,7 +636,12 @@ impl PomodoroApp {
                         .id_salt("notes_edit_scroll")
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
-                        let output = ui.add(egui::TextEdit::multiline(&mut self.notes_content).id(egui::Id::new("notes_text_input")).desired_width(f32::INFINITY).desired_rows(20).font(egui::TextStyle::Monospace));
+                        let output = ui.add(egui::TextEdit::multiline(&mut self.notes_content)
+                            .id(egui::Id::new("notes_text_input"))
+                            .desired_width(f32::INFINITY)
+                            .desired_rows(20)
+                            .lock_focus(true)
+                            .font(egui::TextStyle::Monospace));
                         if let Some(pos) = self.requested_cursor_pos.take() {
                             if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), output.id) {
                                 state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(pos))));
