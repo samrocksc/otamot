@@ -14,6 +14,5 @@ pub mod timer;
 pub mod todo;
 pub mod ui_components;
 
-
 // Note: app module uses eframe which requires a GUI environment
 // It's tested via integration tests rather than unit tests

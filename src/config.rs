@@ -235,11 +235,13 @@ mod tests {
             }
         }"#;
         let config: Config = serde_json::from_str(json).unwrap();
-        assert_eq!(config.slash_commands.get("ted"), Some(&"Ted Williams".to_string()));
-        // Ensure defaults are also there if using the default() constructor then merging, 
+        assert_eq!(
+            config.slash_commands.get("ted"),
+            Some(&"Ted Williams".to_string())
+        );
+        // Ensure defaults are also there if using the default() constructor then merging,
         // but here we just test deserialization of the specific field.
     }
-
 
     #[test]
     fn test_config_deserialization_partial() {

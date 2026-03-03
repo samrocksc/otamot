@@ -1,7 +1,6 @@
 /// Slash command support for the notes editor
 ///
 /// Provides a system for custom slash commands that insert content into notes.
-
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

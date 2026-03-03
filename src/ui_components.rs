@@ -1,7 +1,7 @@
-use eframe::egui;
+use crate::localization::T;
 use crate::markdown::format_inline_markdown;
 use crate::todo::TodoList;
-use crate::localization::T;
+use eframe::egui;
 
 /// Renders a markdown preview within an egui::Frame.
 pub fn render_markdown_preview(ui: &mut egui::Ui, content: &str) {

@@ -23,24 +23,24 @@ pub struct TodoList {
     /// Legacy flat items list for backward compatibility
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub items: Vec<TodoItem>,
-    
+
     /// Active (incomplete) items
     #[serde(default)]
     pub active: Vec<TodoItem>,
-    
+
     /// Completed items
     #[serde(default)]
     pub completed: Vec<TodoItem>,
-    
+
     /// Historical archive of all completed items ever cleared
     #[serde(default)]
     pub history: Vec<TodoItem>,
-    
+
     pub next_id: usize,
-    
+
     #[serde(default)]
     pub enabled: bool,
-    
+
     #[serde(default)]
     pub last_updated: Option<DateTime<Local>>,
 }
@@ -62,7 +62,7 @@ impl TodoList {
     /// Load TODO list from config directory
     pub fn load() -> Self {
         let path = Self::todo_path();
-        
+
         let mut list = if path.exists() {
             match std::fs::read_to_string(&path) {
                 Ok(content) => {
@@ -110,7 +110,7 @@ impl TodoList {
     /// Save TODO list to config directory
     pub fn save(&self) {
         let path = Self::todo_path();
-        
+
         if let Some(parent) = path.parent() {
             if let Err(e) = std::fs::create_dir_all(parent) {
                 eprintln!("Failed to create config directory: {}", e);
@@ -167,7 +167,7 @@ impl TodoList {
             self.last_updated = Some(Local::now());
             return;
         }
-        
+
         // Then check completed
         if let Some(pos) = self.completed.iter().position(|i| i.id == id) {
             let mut item = self.completed.remove(pos);
@@ -204,13 +204,19 @@ impl TodoList {
     /// Convert to markdown format
     pub fn to_markdown(&self) -> String {
         let mut output = String::new();
-        
+
         // Frontmatter
         output.push_str("---\n");
-        output.push_str(&format!("last_updated: {}\n", 
-            self.last_updated.map(|d| d.format("%Y-%m-%d %H:%M:%S").to_string())
-                .unwrap_or_default()));
-        output.push_str(&format!("total_items: {}\n", self.active.len() + self.completed.len()));
+        output.push_str(&format!(
+            "last_updated: {}\n",
+            self.last_updated
+                .map(|d| d.format("%Y-%m-%d %H:%M:%S").to_string())
+                .unwrap_or_default()
+        ));
+        output.push_str(&format!(
+            "total_items: {}\n",
+            self.active.len() + self.completed.len()
+        ));
         output.push_str(&format!("completed: {}\n", self.completed.len()));
         output.push_str("---\n\n");
 
@@ -225,9 +231,14 @@ impl TodoList {
             }
 
             if !self.completed.is_empty() {
-                output.push_str(&format!("\n## Completed ({} items)\n\n", self.completed.len()));
+                output.push_str(&format!(
+                    "\n## Completed ({} items)\n\n",
+                    self.completed.len()
+                ));
                 for item in &self.completed {
-                    let ts = item.completed_at.map(|d| d.format(" [%Y-%m-%d %H:%M]").to_string())
+                    let ts = item
+                        .completed_at
+                        .map(|d| d.format(" [%Y-%m-%d %H:%M]").to_string())
                         .unwrap_or_default();
                     output.push_str(&format!("- [x] {}{}\n", item.text, ts));
                 }
@@ -236,7 +247,9 @@ impl TodoList {
             if !self.history.is_empty() {
                 output.push_str(&format!("\n## History ({} items)\n\n", self.history.len()));
                 for item in &self.history {
-                    let ts = item.completed_at.map(|d| d.format(" [%Y-%m-%d %H:%M]").to_string())
+                    let ts = item
+                        .completed_at
+                        .map(|d| d.format(" [%Y-%m-%d %H:%M]").to_string())
                         .unwrap_or_default();
                     output.push_str(&format!("- [x] {}{}\n", item.text, ts));
                 }
@@ -256,7 +269,9 @@ impl TodoList {
                 in_frontmatter = !in_frontmatter;
                 continue;
             }
-            if in_frontmatter { continue; }
+            if in_frontmatter {
+                continue;
+            }
 
             let trimmed = line.trim();
             if trimmed.starts_with("- [ ] ") {
@@ -317,7 +332,7 @@ mod tests {
         assert!(list.active.is_empty());
         assert_eq!(list.completed.len(), 1);
         assert!(list.completed[0].completed);
-        
+
         list.toggle(1);
         assert!(list.completed.is_empty());
         assert_eq!(list.active.len(), 1);

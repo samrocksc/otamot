@@ -1,5 +1,5 @@
-use eframe::egui;
 use crate::easy_mark::highlighter::MemoizedEasymarkHighlighter;
+use eframe::egui;
 
 #[derive(Default)]
 pub struct EasyMarkEditor {
@@ -7,18 +7,24 @@ pub struct EasyMarkEditor {
 }
 
 impl EasyMarkEditor {
-    pub fn show(&mut self, ui: &mut egui::Ui, content: &mut String) -> egui::Response {
+    pub fn show(
+        &mut self,
+        ui: &mut egui::Ui,
+        content: &mut String,
+    ) -> egui::text_edit::TextEditOutput {
         let mut layouter = |ui: &egui::Ui, string: &str, wrap_width: f32| {
             let mut layout_job = self.highlighter.highlight(ui.style(), string);
             layout_job.wrap.max_width = wrap_width;
             ui.fonts(|f| f.layout_job(layout_job))
         };
 
-        ui.add(egui::TextEdit::multiline(content)
+        egui::TextEdit::multiline(content)
             .id(egui::Id::new("notes_text_input"))
             .desired_width(f32::INFINITY)
             .desired_rows(12)
             .font(egui::TextStyle::Monospace)
-            .layouter(&mut layouter))
+            .layouter(&mut layouter)
+            .lock_focus(true)
+            .show(ui)
     }
 }
