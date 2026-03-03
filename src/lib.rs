@@ -6,6 +6,7 @@ pub mod commands;
 pub mod config;
 pub mod easy_mark;
 pub mod hashtags;
+pub mod kanban;
 pub mod localization;
 pub mod markdown;
 pub mod notes;

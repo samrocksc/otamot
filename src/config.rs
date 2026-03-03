@@ -53,6 +53,9 @@ pub struct Config {
 
     #[serde(default = "default_true")]
     pub todo_enabled: bool,
+
+    #[serde(default)]
+    pub kanban_enabled: bool,
 }
 
 fn default_true() -> bool {
@@ -98,6 +101,7 @@ impl Default for Config {
             language: Language::default(),
             slash_commands: default_slash_commands(),
             todo_enabled: true,
+            kanban_enabled: false,
         }
     }
 }

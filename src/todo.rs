@@ -284,9 +284,9 @@ impl TodoList {
                     completed_at: None,
                 });
                 list.next_id += 1;
-            } else if trimmed.starts_with("- [x] ") {
+            } else if let Some(stripped) = trimmed.strip_prefix("- [x] ") {
                 // Try to extract timestamp if present like "- [x] task [2026-03-03 ...]"
-                let text_part = trimmed[6..].to_string();
+                let text_part = stripped.to_string();
                 let (text, completed_at) = if let Some(bracket_pos) = text_part.rfind(" [") {
                     (text_part[..bracket_pos].to_string(), Some(Local::now()))
                 } else {

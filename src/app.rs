@@ -8,6 +8,7 @@ use otamot::commands::CommandManager;
 use otamot::config::{Config, Language, NotesView};
 use otamot::easy_mark::editor::EasyMarkEditor;
 use otamot::hashtags::HashtagLibrary;
+use otamot::kanban::KanbanBoard;
 use otamot::localization::T;
 use otamot::markdown::{format_markdown, insert_date_bullet};
 use otamot::survey::SurveyData;
@@ -83,6 +84,11 @@ pub struct PomodoroApp {
     survey_what_hurt: String,
     todo_enabled: bool,
     editor: EasyMarkEditor,
+
+    // Kanban state
+    kanban_enabled: bool,
+    kanban_board: KanbanBoard,
+    kanban_input: String,
 }
 
 impl PomodoroApp {
@@ -125,6 +131,9 @@ impl PomodoroApp {
             todo_input: String::new(),
             todo_enabled: config.todo_enabled,
             editor: EasyMarkEditor::default(),
+            kanban_enabled: config.kanban_enabled,
+            kanban_board: KanbanBoard::load(),
+            kanban_input: String::new(),
 
             sessions_completed: 0,
             show_survey: false,
@@ -251,11 +260,9 @@ impl PomodoroApp {
                     .trim_start_matches('#')
                     .trim_end_matches(|c: char| !c.is_alphanumeric() && c != '_')
                     .to_lowercase();
-                if !tag.is_empty() && tag.chars().all(|c| c.is_alphanumeric() || c == '_') {
-                    if !tags.contains(&tag) {
+                    if !tag.is_empty() && tag.chars().all(|c| c.is_alphanumeric() || c == '_') && !tags.contains(&tag) {
                         tags.push(tag);
                     }
-                }
             }
         }
         tags
@@ -443,7 +450,7 @@ impl eframe::App for PomodoroApp {
                             .next()
                             .map(|c| c.is_ascii_digit())
                             .unwrap_or(false)
-                            && trimmed.find(". ").is_some());
+                            && trimmed.contains(". "));
 
                     if shift {
                         // Handle Outdent (Shift+Tab)
@@ -874,6 +881,27 @@ impl PomodoroApp {
             let _ = self.config.save();
         }
 
+        ui.add_space(10.0);
+        if ui
+            .add(
+                egui::Button::new(
+                    egui::RichText::new(if self.kanban_enabled {
+                        "Kanban: ON"
+                    } else {
+                        "Kanban: OFF"
+                    })
+                    .color(text_color),
+                )
+                .fill(button_color)
+                .rounding(8.0),
+            )
+            .clicked()
+        {
+            self.kanban_enabled = !self.kanban_enabled;
+            self.config.kanban_enabled = self.kanban_enabled;
+            let _ = self.config.save();
+        }
+
         if self.notes_enabled && !self.notes_content.is_empty() {
             ui.add_space(10.0);
             if ui
@@ -1019,6 +1047,19 @@ impl PomodoroApp {
                 &self.t,
                 text_color,
                 button_color,
+            );
+        }
+
+        // Render Kanban section if enabled
+        if self.kanban_enabled {
+            if self.notes_enabled || self.todo_enabled {
+                ui.add_space(30.0);
+            }
+            ui_components::render_kanban_board(
+                ui,
+                &mut self.kanban_board,
+                &mut self.kanban_input,
+                &self.t,
             );
         }
     }
