@@ -45,29 +45,33 @@ impl VimState {
         let mut consumed = false;
         
         let events = ctx.input(|i| i.events.clone());
+        let mut handled_indices = Vec::new();
         
-        for event in events {
+        for (idx, event) in events.iter().enumerate() {
             match event {
                 egui::Event::Text(text) => {
                     if self.mode == VimMode::Normal {
                         for ch in text.chars() {
                             if self.process_normal_key(ch, content, cursor_pos) {
                                 consumed = true;
+                                handled_indices.push(idx);
                             }
                         }
                     }
                 }
                 egui::Event::Key { key, pressed: true, .. } => {
                     if self.mode == VimMode::Normal {
-                         if self.process_normal_special_key(key, content, cursor_pos) {
+                         if self.process_normal_special_key(*key, content, cursor_pos) {
                              consumed = true;
+                             handled_indices.push(idx);
                          }
                     } else if self.mode == VimMode::Insert {
-                        if key == egui::Key::Escape {
+                        if *key == egui::Key::Escape {
                             self.mode = VimMode::Normal;
                             self.mode_changed = true;
                             self.pending_operator = None;
                             consumed = true;
+                            handled_indices.push(idx);
                             // Move cursor back one if possible (Vim behavior)
                             if *cursor_pos > 0 {
                                 let line_start = self.get_line_start(content, *cursor_pos);
@@ -80,6 +84,20 @@ impl VimState {
                 }
                 _ => {}
             }
+        }
+
+        if consumed {
+            // Remove handled events from the real input queue
+            ctx.input_mut(|i| {
+                let mut offset = 0;
+                for idx in handled_indices {
+                    let real_idx = idx - offset;
+                    if real_idx < i.events.len() {
+                        i.events.remove(real_idx);
+                        offset += 1;
+                    }
+                }
+            });
         }
 
         consumed

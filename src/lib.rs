@@ -4,6 +4,7 @@
 pub mod bell;
 pub mod commands;
 pub mod config;
+pub mod easy_mark;
 pub mod hashtags;
 pub mod localization;
 pub mod markdown;

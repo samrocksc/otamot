@@ -14,6 +14,7 @@ use otamot::timer::TimerMode;
 use otamot::todo::TodoList;
 use otamot::ui_components;
 use otamot::vim::{VimMode, VimState};
+use otamot::easy_mark::highlighter::MemoizedEasymarkHighlighter;
 
 /// Dropdown state for autocomplete
 #[derive(Debug, Clone, PartialEq)]
@@ -83,6 +84,7 @@ pub struct PomodoroApp {
     survey_what_hurt: String,
     todo_enabled: bool,
     vim_state: VimState,
+    highlighter: MemoizedEasymarkHighlighter,
 }
 
 impl PomodoroApp {
@@ -125,6 +127,7 @@ impl PomodoroApp {
             todo_input: String::new(),
             todo_enabled: config.todo_enabled,
             vim_state: VimState::default(),
+            highlighter: MemoizedEasymarkHighlighter::default(),
 
             sessions_completed: 0,
             show_survey: false,
@@ -517,7 +520,7 @@ impl eframe::App for PomodoroApp {
 
         // Autocomplete drop-down logic
         if self.notes_enabled && self.notes_view == NotesView::Edit {
-            let cursor_pos = self.notes_content.len();
+            let cursor_pos = self.notes_cursor_pos;
             if !self.dropdown_visible {
                 if let Some((pos, cmd)) = CommandManager::find_command_at_cursor(&self.notes_content, cursor_pos) {
                     self.dropdown_visible = true;
@@ -758,30 +761,38 @@ impl PomodoroApp {
                     }
 
                         if self.config.vim_enabled {
-                            let consumed = self.vim_state.handle_input(ctx, &mut self.notes_content, &mut self.notes_cursor_pos);
-                            if consumed && self.vim_state.mode == VimMode::Normal {
-                                ctx.input_mut(|i| i.events.clear());
+                            if self.vim_state.handle_input(ctx, &mut self.notes_content, &mut self.notes_cursor_pos) {
+                                self.requested_cursor_pos = Some(self.notes_cursor_pos);
                             }
-                            self.requested_cursor_pos = Some(self.notes_cursor_pos);
                         }
 
-                    let output = ui.add(egui::TextEdit::multiline(&mut self.notes_content)
+                    let mut layouter = |ui: &egui::Ui, string: &str, wrap_width: f32| {
+                        let mut layout_job = self.highlighter.highlight(ui.style(), string);
+                        layout_job.wrap.max_width = wrap_width;
+                        ui.fonts(|f| f.layout_job(layout_job))
+                    };
+
+                    let output = egui::TextEdit::multiline(&mut self.notes_content)
                         .id(egui::Id::new("notes_text_input"))
                         .desired_width(f32::INFINITY)
                         .desired_rows(12)
-                        .font(egui::TextStyle::Monospace));
+                        .font(egui::TextStyle::Monospace)
+                        .layouter(&mut layouter)
+                        .show(ui);
+
+                    let response = output.response;
 
                     // Track cursor position for Tab handling
-                    if let Some(state) = egui::TextEdit::load_state(ui.ctx(), output.id) {
+                    if let Some(state) = egui::TextEdit::load_state(ui.ctx(), response.id) {
                         if let Some(range) = state.cursor.char_range() {
                             self.notes_cursor_pos = range.primary.index;
                         }
                     }
 
                     if let Some(pos) = self.requested_cursor_pos.take() {
-                        if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), output.id) {
+                        if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), response.id) {
                             state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(pos))));
-                            state.store(ui.ctx(), output.id);
+                            state.store(ui.ctx(), response.id);
                             self.notes_cursor_pos = pos;
                         }
                     }
@@ -797,7 +808,28 @@ impl PomodoroApp {
 
                         // To keep the cursor visible, we need the TextEdit to have focus even in Normal mode
                         if self.vim_state.mode == VimMode::Normal || self.vim_state.mode_changed {
-                            ui.ctx().memory_mut(|mem| mem.request_focus(output.id));
+                            ui.ctx().memory_mut(|mem| mem.request_focus(response.id));
+                        }
+
+                        // Draw block cursor in Normal mode
+                        if self.vim_state.mode == VimMode::Normal && !ui.ui_contains_pointer() {
+                             // Only draw if we have focus and are in Normal mode
+                             if ui.ctx().memory(|mem| mem.has_focus(response.id)) {
+                                 if let Some(state) = egui::TextEdit::load_state(ui.ctx(), response.id) {
+                                     let ccursor = state.cursor.char_range().map(|r| r.primary).unwrap_or_default();
+                                     let cursor = output.galley.from_ccursor(ccursor);
+                                     let rect = output.galley.pos_from_cursor(&cursor);
+                                     
+                                     let mut block_rect = rect;
+                                     block_rect.set_width(8.0); 
+                                     
+                                     ui.painter().with_clip_rect(response.rect).rect_filled(
+                                         block_rect.translate(output.galley_pos.to_vec2()), 
+                                         0.0, 
+                                         egui::Color32::from_rgba_unmultiplied(136, 204, 255, 120)
+                                     );
+                                 }
+                             }
                         }
                     }
 
