@@ -52,6 +52,7 @@ pub struct PomodoroApp {
     notes_view: NotesView,
     focus_notes_input: bool, // Flag to request focus on notes text input
     requested_cursor_pos: Option<usize>, // Requested cursor position for notes input
+    notes_cursor_pos: usize, // Current cursor position in notes text input
 
     // Slash commands and hashtags
     command_manager: CommandManager,
@@ -110,6 +111,7 @@ impl PomodoroApp {
             notes_view: NotesView::Edit,
             focus_notes_input: false,
             requested_cursor_pos: None,
+            notes_cursor_pos: 0,
             command_manager: CommandManager::with_commands(config.slash_commands.clone()),
             hashtag_library: HashtagLibrary::load(),
             dropdown_visible: false,
@@ -385,7 +387,7 @@ impl eframe::App for PomodoroApp {
         {
             let is_focused = ctx.memory(|mem| mem.has_focus(egui::Id::new("notes_text_input")));
             let shift = ctx.input(|i| i.modifiers.shift);
-            
+
             if self.dropdown_visible {
                 if !self.dropdown_items.is_empty() {
                     if shift {
@@ -400,33 +402,35 @@ impl eframe::App for PomodoroApp {
                 // Prevent focus escapement
                 ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab));
                 ctx.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab));
-                
+
+                // Get byte position from character position
+                let byte_pos = self.notes_content.char_indices()
+                    .nth(self.notes_cursor_pos)
+                    .map(|(i, _)| i)
+                    .unwrap_or(self.notes_content.len());
+
                 if shift {
-                    // Handle Outdent (Shift+Tab)
-                    if self.notes_content.ends_with("  ") {
-                        self.notes_content.truncate(self.notes_content.len() - 2);
-                        self.requested_cursor_pos = Some(self.notes_content.chars().count());
-                    } else if self.notes_content.ends_with('\t') {
-                        self.notes_content.truncate(self.notes_content.len() - 1);
-                        self.requested_cursor_pos = Some(self.notes_content.chars().count());
+                    // Handle Outdent (Shift+Tab) - remove indentation before cursor
+                    // Find the start of the current line
+                    let line_start = self.notes_content[..byte_pos].rfind('\n')
+                        .map(|i| i + 1)
+                        .unwrap_or(0);
+
+                    // Check for indentation at line start
+                    let line_content = &self.notes_content[line_start..];
+                    if line_content.starts_with("  ") {
+                        // Remove 2 spaces from line start
+                        self.notes_content = format!("{}{}", &self.notes_content[..line_start], &self.notes_content[line_start + 2..]);
+                        self.requested_cursor_pos = Some(self.notes_cursor_pos.saturating_sub(2));
+                    } else if line_content.starts_with('\t') {
+                        // Remove tab from line start
+                        self.notes_content = format!("{}{}", &self.notes_content[..line_start], &self.notes_content[line_start + 1..]);
+                        self.requested_cursor_pos = Some(self.notes_cursor_pos.saturating_sub(1));
                     }
                 } else {
-                    // Handle Indent (Tab)
-                    let trimmed = self.notes_content.trim_end();
-                    if trimmed.ends_with("- ") || trimmed.ends_with("* ") {
-                        // Special case: indenting a bullet
-                        if let Some(last_newline) = self.notes_content.rfind('\n') {
-                            let before = &self.notes_content[..last_newline + 1];
-                            let after = &self.notes_content[last_newline + 1..];
-                            self.notes_content = format!("{}  {}", before, after);
-                        } else {
-                            self.notes_content = format!("  {}", self.notes_content);
-                        }
-                    } else {
-                        // Standard tab behavior (insert spaces)
-                        self.notes_content.push_str("  ");
-                    }
-                    self.requested_cursor_pos = Some(self.notes_content.chars().count());
+                    // Handle Indent (Tab) - insert 2 spaces at cursor position
+                    self.notes_content.insert_str(byte_pos, "  ");
+                    self.requested_cursor_pos = Some(self.notes_cursor_pos + 2);
                 }
             }
         }
@@ -683,11 +687,19 @@ impl PomodoroApp {
                     .desired_width(f32::INFINITY)
                     .desired_rows(12)
                     .font(egui::TextStyle::Monospace));
-                
+
+                // Track cursor position for Tab handling
+                if let Some(state) = egui::TextEdit::load_state(ui.ctx(), output.id) {
+                    if let Some(range) = state.cursor.char_range() {
+                        self.notes_cursor_pos = range.primary.index;
+                    }
+                }
+
                 if let Some(pos) = self.requested_cursor_pos.take() {
                     if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), output.id) {
                         state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(pos))));
                         state.store(ui.ctx(), output.id);
+                        self.notes_cursor_pos = pos;
                     }
                 }
                 self.render_dropdown(ui);
