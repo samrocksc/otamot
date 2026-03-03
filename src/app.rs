@@ -378,105 +378,111 @@ tags:
     }
 
     fn render_markdown_preview(&self, ui: &mut egui::Ui) {
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            let mut in_code_block = false;
+        egui::Frame::group(ui.style())
+            .fill(egui::Color32::from_rgb(0x2a, 0x2a, 0x40))
+            .rounding(egui::Rounding::same(8.0))
+            .inner_margin(egui::Margin::same(10.0))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                let mut in_code_block = false;
 
-            for line in self.notes_content.lines() {
-                // Handle code blocks
-                if line.trim().starts_with("```") {
-                    in_code_block = !in_code_block;
-                    ui.label(
-                        egui::RichText::new(line)
-                            .monospace()
-                            .color(egui::Color32::from_rgb(0x88, 0x88, 0x88)),
-                    );
-                    continue;
+                for line in self.notes_content.lines() {
+                    // Handle code blocks
+                    if line.trim().starts_with("```") {
+                        in_code_block = !in_code_block;
+                        ui.label(
+                            egui::RichText::new(line)
+                                .monospace()
+                                .color(egui::Color32::from_rgb(0x88, 0x88, 0x88)),
+                        );
+                        continue;
+                    }
+
+                    if in_code_block {
+                        ui.label(
+                            egui::RichText::new(line)
+                                .monospace()
+                                .color(egui::Color32::from_rgb(0xaa, 0xaa, 0xaa)),
+                        );
+                        continue;
+                    }
+
+                    let trimmed = line.trim();
+
+                    if trimmed.starts_with("# ") {
+                        ui.add_space(8.0);
+                        ui.label(
+                            egui::RichText::new(trimmed.strip_prefix("# ").unwrap_or(trimmed))
+                                .size(24.0)
+                                .strong()
+                                .color(egui::Color32::from_rgb(0xee, 0xee, 0xee)),
+                        );
+                        ui.add_space(4.0);
+                    } else if trimmed.starts_with("## ") {
+                        ui.add_space(6.0);
+                        ui.label(
+                            egui::RichText::new(trimmed.strip_prefix("## ").unwrap_or(trimmed))
+                                .size(20.0)
+                                .strong()
+                                .color(egui::Color32::from_rgb(0xee, 0xee, 0xee)),
+                        );
+                        ui.add_space(3.0);
+                    } else if trimmed.starts_with("### ") {
+                        ui.add_space(4.0);
+                        ui.label(
+                            egui::RichText::new(trimmed.strip_prefix("### ").unwrap_or(trimmed))
+                                .size(16.0)
+                                .strong()
+                                .color(egui::Color32::from_rgb(0xee, 0xee, 0xee)),
+                        );
+                        ui.add_space(2.0);
+                    } else if trimmed.starts_with("- ") || trimmed.starts_with("* ") {
+                        let bullet_text = format!(
+                            "• {}",
+                            trimmed
+                                .strip_prefix("- ")
+                                .or_else(|| trimmed.strip_prefix("* "))
+                                .unwrap_or(trimmed)
+                        );
+                        ui.label(
+                            egui::RichText::new(bullet_text)
+                                .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
+                        );
+                    } else if trimmed.starts_with("  - ") || trimmed.starts_with("  * ") {
+                        // Indented list items
+                        let bullet_text = format!(
+                            "  ◦ {}",
+                            trimmed[2..]
+                                .trim()
+                                .strip_prefix("- ")
+                                .or_else(|| trimmed[2..].trim().strip_prefix("* "))
+                                .unwrap_or(trimmed)
+                        );
+                        ui.label(
+                            egui::RichText::new(bullet_text)
+                                .color(egui::Color32::from_rgb(0xaa, 0xaa, 0xaa)),
+                        );
+                    } else if trimmed.starts_with("**") && trimmed.ends_with("**") && trimmed.len() > 4
+                    {
+                        let bold_text = trimmed[2..trimmed.len() - 2].to_string();
+                        ui.label(
+                            egui::RichText::new(bold_text)
+                                .strong()
+                                .color(egui::Color32::from_rgb(0xee, 0xee, 0xee)),
+                        );
+                    } else if trimmed.is_empty() {
+                        // Preserve empty lines as spacing
+                        ui.add_space(6.0);
+                    } else {
+                        // Regular paragraph text - handle inline bold
+                        let text = self.format_inline_markdown(trimmed);
+                        ui.label(
+                            egui::RichText::new(text).color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
+                        );
+                    }
                 }
-
-                if in_code_block {
-                    ui.label(
-                        egui::RichText::new(line)
-                            .monospace()
-                            .color(egui::Color32::from_rgb(0xaa, 0xaa, 0xaa)),
-                    );
-                    continue;
-                }
-
-                let trimmed = line.trim();
-
-                if trimmed.starts_with("# ") {
-                    ui.add_space(8.0);
-                    ui.label(
-                        egui::RichText::new(trimmed.strip_prefix("# ").unwrap_or(trimmed))
-                            .size(20.0)
-                            .strong()
-                            .color(egui::Color32::from_rgb(0xee, 0xee, 0xee)),
-                    );
-                    ui.add_space(4.0);
-                } else if trimmed.starts_with("## ") {
-                    ui.add_space(6.0);
-                    ui.label(
-                        egui::RichText::new(trimmed.strip_prefix("## ").unwrap_or(trimmed))
-                            .size(16.0)
-                            .strong()
-                            .color(egui::Color32::from_rgb(0xee, 0xee, 0xee)),
-                    );
-                    ui.add_space(3.0);
-                } else if trimmed.starts_with("### ") {
-                    ui.add_space(4.0);
-                    ui.label(
-                        egui::RichText::new(trimmed.strip_prefix("### ").unwrap_or(trimmed))
-                            .size(14.0)
-                            .strong()
-                            .color(egui::Color32::from_rgb(0xee, 0xee, 0xee)),
-                    );
-                    ui.add_space(2.0);
-                } else if trimmed.starts_with("- ") || trimmed.starts_with("* ") {
-                    let bullet_text = format!(
-                        "• {}",
-                        trimmed
-                            .strip_prefix("- ")
-                            .or_else(|| trimmed.strip_prefix("* "))
-                            .unwrap_or(trimmed)
-                    );
-                    ui.label(
-                        egui::RichText::new(bullet_text)
-                            .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
-                    );
-                } else if trimmed.starts_with("  - ") || trimmed.starts_with("  * ") {
-                    // Indented list items
-                    let bullet_text = format!(
-                        "  ◦ {}",
-                        trimmed[2..]
-                            .trim()
-                            .strip_prefix("- ")
-                            .or_else(|| trimmed[2..].trim().strip_prefix("* "))
-                            .unwrap_or(trimmed)
-                    );
-                    ui.label(
-                        egui::RichText::new(bullet_text)
-                            .color(egui::Color32::from_rgb(0xaa, 0xaa, 0xaa)),
-                    );
-                } else if trimmed.starts_with("**") && trimmed.ends_with("**") && trimmed.len() > 4
-                {
-                    let bold_text = trimmed[2..trimmed.len() - 2].to_string();
-                    ui.label(
-                        egui::RichText::new(bold_text)
-                            .strong()
-                            .color(egui::Color32::from_rgb(0xee, 0xee, 0xee)),
-                    );
-                } else if trimmed.is_empty() {
-                    // Preserve empty lines as spacing
-                    ui.add_space(6.0);
-                } else {
-                    // Regular paragraph text - handle inline bold
-                    let text = self.format_inline_markdown(trimmed);
-                    ui.label(
-                        egui::RichText::new(text).color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
-                    );
-                }
-            }
-        });
+                ui.add_space(20.0);
+            });
     }
 
     fn format_inline_markdown(&self, text: &str) -> String {
@@ -879,7 +885,7 @@ impl eframe::App for PomodoroApp {
                     ui.add_space(20.0);
 
                     // Right column: Notes editor
-                    ui.vertical(|ui| {
+                    ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
                         // Tab buttons
                         ui.horizontal(|ui| {
                             let edit_color = if self.notes_view == NotesView::Edit {
@@ -935,12 +941,12 @@ impl eframe::App for PomodoroApp {
                                     self.focus_notes_input = false;
                                 }
 
-                                egui::ScrollArea::vertical().show(ui, |ui| {
+                                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                                     let output = ui.add(
                                         egui::TextEdit::multiline(&mut self.notes_content)
                                             .id(egui::Id::new("notes_text_input"))
                                             .desired_width(f32::INFINITY) // Use all available width
-                                            .desired_rows(15)
+                                            .desired_rows(20)
                                             .font(egui::TextStyle::Monospace),
                                     );
 
@@ -1033,7 +1039,9 @@ impl eframe::App for PomodoroApp {
                                 }
                             }
                             NotesView::Preview => {
-                                self.render_markdown_preview(ui);
+                                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                                    self.render_markdown_preview(ui);
+                                });
                             }
                         }
                     });
