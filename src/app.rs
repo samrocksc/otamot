@@ -517,24 +517,28 @@ impl eframe::App for PomodoroApp {
 
                     // Side Pillar 1: Timer and basic controls
                     ui.allocate_ui(egui::vec2(sidebar_width, ui.available_height()), |ui| {
-                        egui::ScrollArea::vertical()
-                            .id_salt("sidebar_scroll")
-                            .auto_shrink([false, false])
-                            .show(ui, |ui| {
-                                self.render_timer_column(ui, text_color, button_color, work_color, break_color);
-                            });
+                        ui.vertical(|ui| {
+                            egui::ScrollArea::vertical()
+                                .id_salt("sidebar_scroll")
+                                .auto_shrink([false, false])
+                                .show(ui, |ui| {
+                                    self.render_timer_column(ui, text_color, button_color, work_color, break_color);
+                                });
+                        });
                     });
 
                     ui.separator();
 
                     // Side Pillar 2: Notes area and TODOs
                     ui.allocate_ui(egui::vec2(notes_width, ui.available_height()), |ui| {
-                        egui::ScrollArea::vertical()
-                            .id_salt("notes_area_scroll")
-                            .auto_shrink([false, false])
-                            .show(ui, |ui| {
-                                self.render_notes_column(ctx, ui, text_color, tab_active_color, tab_inactive_color, button_color);
-                            });
+                        ui.vertical(|ui| {
+                            egui::ScrollArea::vertical()
+                                .id_salt("notes_area_scroll")
+                                .auto_shrink([false, false])
+                                .show(ui, |ui| {
+                                    self.render_notes_column(ctx, ui, text_color, tab_active_color, tab_inactive_color, button_color);
+                                });
+                        });
                     });
                 });
             } else {
