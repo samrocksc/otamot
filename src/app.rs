@@ -89,6 +89,8 @@ pub struct PomodoroApp {
     kanban_enabled: bool,
     kanban_board: KanbanBoard,
     kanban_input: String,
+
+    sidebar_collapsed: bool,
 }
 
 impl PomodoroApp {
@@ -134,6 +136,7 @@ impl PomodoroApp {
             kanban_enabled: config.kanban_enabled,
             kanban_board: KanbanBoard::load(),
             kanban_input: String::new(),
+            sidebar_collapsed: config.sidebar_collapsed,
 
             sessions_completed: 0,
             show_survey: false,
@@ -149,6 +152,234 @@ impl PomodoroApp {
         let minutes = self.remaining_seconds / 60;
         let seconds = self.remaining_seconds % 60;
         format!("{:02}:{:02}", minutes, seconds)
+    }
+
+    fn render_sidebar(
+        &mut self,
+        ui: &mut egui::Ui,
+        text_color: egui::Color32,
+        button_color: egui::Color32,
+    ) {
+        ui.vertical(|ui| {
+            ui.add_space(10.0);
+            
+            // Hamburger Menu Button
+            let menu_btn = egui::Button::new(egui::RichText::new("☰").size(18.0).color(text_color))
+                .fill(button_color)
+                .rounding(egui::Rounding::same(8.0))
+                .min_size(egui::vec2(32.0, 32.0));
+            
+            if ui.add(menu_btn).clicked() {
+                self.sidebar_collapsed = !self.sidebar_collapsed;
+                self.config.sidebar_collapsed = self.sidebar_collapsed;
+                let _ = self.config.save();
+            }
+
+            if !self.sidebar_collapsed {
+                ui.add_space(20.0);
+                
+                // Settings button
+                if ui
+                    .add(
+                        egui::Button::new(egui::RichText::new(self.t.settings_btn()).color(text_color))
+                            .fill(button_color)
+                            .rounding(8.0),
+                    )
+                    .clicked()
+                {
+                    self.temp_work_duration = self.config.work_duration;
+                    self.temp_break_duration = self.config.break_duration;
+                    self.temp_notes_directory = self.config.notes_directory.clone();
+                    self.show_settings = true;
+                }
+                
+                ui.add_space(10.0);
+                
+                // Survey summary button
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new(self.t.survey_summary_title()).color(text_color),
+                        )
+                        .fill(button_color)
+                        .rounding(8.0),
+                    )
+                    .clicked()
+                {
+                    self.show_survey_summary = true;
+                }
+
+                ui.add_space(30.0);
+                ui.separator();
+                ui.add_space(10.0);
+
+                // Toggles
+                // Notes Toggle
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new(if self.notes_enabled {
+                                self.t.notes_on()
+                            } else {
+                                self.t.notes_off()
+                            })
+                            .color(text_color),
+                        )
+                        .fill(button_color)
+                        .rounding(8.0),
+                    )
+                    .clicked()
+                {
+                    self.notes_enabled = !self.notes_enabled;
+                    self.config.notes_enabled = self.notes_enabled;
+                    let _ = self.config.save();
+                }
+
+                ui.add_space(10.0);
+                
+                // TODO Toggle
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new(if self.todo_enabled {
+                                self.t.todo_on()
+                            } else {
+                                self.t.todo_off()
+                            })
+                            .color(text_color),
+                        )
+                        .fill(button_color)
+                        .rounding(8.0),
+                    )
+                    .clicked()
+                {
+                    self.todo_enabled = !self.todo_enabled;
+                    self.config.todo_enabled = self.todo_enabled;
+                    let _ = self.config.save();
+                }
+
+                ui.add_space(10.0);
+                
+                // Kanban Toggle
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new(if self.kanban_enabled {
+                                "Kanban: ON"
+                            } else {
+                                "Kanban: OFF"
+                            })
+                            .color(text_color),
+                        )
+                        .fill(button_color)
+                        .rounding(8.0),
+                    )
+                    .clicked()
+                {
+                    self.kanban_enabled = !self.kanban_enabled;
+                    self.config.kanban_enabled = self.kanban_enabled;
+                    let _ = self.config.save();
+                }
+
+                ui.add_space(20.0);
+                ui.separator();
+                ui.add_space(10.0);
+
+                if ui
+                    .add(
+                        egui::Button::new(egui::RichText::new(self.t.help_button()).color(text_color))
+                            .fill(button_color)
+                            .rounding(8.0),
+                    )
+                    .clicked()
+                {
+                    self.show_help = !self.show_help;
+                }
+
+                ui.add_space(10.0);
+                ui.label(
+                    egui::RichText::new(self.t.sessions_completed_label(self.sessions_completed))
+                        .size(12.0)
+                        .color(egui::Color32::from_rgb(0x88, 0x88, 0x88)),
+                );
+            }
+        });
+    }
+
+    fn render_timer(
+        &mut self,
+        ui: &mut egui::Ui,
+        text_color: egui::Color32,
+        button_color: egui::Color32,
+        work_color: egui::Color32,
+        break_color: egui::Color32,
+    ) {
+        ui.horizontal(|ui| {
+            ui.add_space(10.0);
+            
+            // Timer Display
+            ui.label(
+                egui::RichText::new(self.format_time())
+                    .size(48.0)
+                    .color(text_color),
+            );
+            
+            ui.add_space(20.0);
+            
+            let (mode_label, mode_color) = match self.mode {
+                TimerMode::Work => (self.t.timer_work(), work_color),
+                TimerMode::Break => (self.t.timer_break(), break_color),
+            };
+            ui.label(egui::RichText::new(mode_label).size(20.0).color(mode_color));
+            
+            ui.add_space(30.0);
+            
+            // Timer Controls
+            let label = if self.is_running {
+                self.t.pause_button()
+            } else {
+                self.t.start_button()
+            };
+            if Self::rounded_button(ui, &label, text_color, button_color).clicked() {
+                self.toggle_timer();
+            }
+            ui.add_space(8.0);
+            if Self::rounded_button(ui, &self.t.reset_button(), text_color, button_color).clicked()
+            {
+                self.reset_timer();
+            }
+            ui.add_space(8.0);
+            if Self::rounded_button(
+                ui,
+                &self.t.button_skip().to_uppercase(),
+                text_color,
+                button_color,
+            )
+            .clicked()
+            {
+                self.skip_to_break();
+            }
+
+            if self.notes_enabled && !self.notes_content.is_empty() {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_space(10.0);
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new(self.t.save_notes_btn()).color(text_color),
+                            )
+                            .fill(egui::Color32::from_rgb(0x27, 0xae, 0x60))
+                            .rounding(8.0),
+                        )
+                        .clicked()
+                    {
+                        self.save_notes();
+                    }
+                });
+            }
+        });
+        ui.add_space(10.0);
+        ui.separator();
     }
 
     fn toggle_timer(&mut self) {
@@ -649,28 +880,32 @@ impl eframe::App for PomodoroApp {
         });
 
         // Main UI Layout
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default()
+            .frame(egui::Frame::none().inner_margin(egui::Margin::same(15.0)))
+            .show(ctx, |ui| {
             if self.notes_enabled || self.todo_enabled {
                 // Get the full available height before entering horizontal layout
                 let full_height = ui.available_height();
                 let total_width = ui.available_width();
-                let sidebar_width = 250.0;
-                let right_width = total_width - sidebar_width - 20.0; // Subtract padding
-
+                let sidebar_width = if self.sidebar_collapsed { 50.0 } else { 200.0 };
+                let right_width = total_width - sidebar_width - 20.0;
                 ui.horizontal_top(|ui| {
-                    // Side Pillar 1: Timer and basic controls
+                    // Side Pillar 1: Settings and toggles (Sidebar)
                     ui.allocate_ui(egui::vec2(sidebar_width, full_height), |ui| {
                         ui.vertical(|ui| {
+                            // Sync Kanban with TODO if enabled
+                            if self.kanban_enabled {
+                                self.kanban_board.sync_with_todo(&mut self.todo_list);
+                            }
+
                             egui::ScrollArea::vertical()
                                 .id_salt("sidebar_scroll")
                                 .auto_shrink([false, false])
                                 .show(ui, |ui| {
-                                    self.render_timer_column(
+                                    self.render_sidebar(
                                         ui,
                                         text_color,
                                         button_color,
-                                        work_color,
-                                        break_color,
                                     );
                                 });
                         });
@@ -678,7 +913,7 @@ impl eframe::App for PomodoroApp {
 
                     ui.separator();
 
-                    // Side Pillar 2: Notes area and/or TODOs
+                    // Side Pillar 2: Timer + Notes area and/or TODOs
                     ui.allocate_ui(egui::vec2(right_width, full_height), |ui| {
                         ui.vertical(|ui| {
                             egui::ScrollArea::vertical()
@@ -692,6 +927,8 @@ impl eframe::App for PomodoroApp {
                                         tab_active_color,
                                         tab_inactive_color,
                                         button_color,
+                                        work_color,
+                                        break_color,
                                     );
                                 });
                         });
@@ -761,183 +998,6 @@ impl PomodoroApp {
         self.focus_notes_input = true;
     }
 
-    fn render_timer_column(
-        &mut self,
-        ui: &mut egui::Ui,
-        text_color: egui::Color32,
-        button_color: egui::Color32,
-        work_color: egui::Color32,
-        break_color: egui::Color32,
-    ) {
-        ui.add_space(30.0);
-        ui.label(
-            egui::RichText::new(self.format_time())
-                .size(48.0)
-                .color(text_color),
-        );
-        ui.add_space(10.0);
-
-        let (mode_label, mode_color) = match self.mode {
-            TimerMode::Work => (self.t.timer_work(), work_color),
-            TimerMode::Break => (self.t.timer_break(), break_color),
-        };
-        ui.label(egui::RichText::new(mode_label).size(20.0).color(mode_color));
-        ui.add_space(20.0);
-
-        ui.horizontal(|ui| {
-            ui.add_space(10.0);
-            let label = if self.is_running {
-                self.t.pause_button()
-            } else {
-                self.t.start_button()
-            };
-            if Self::rounded_button(ui, &label, text_color, button_color).clicked() {
-                self.toggle_timer();
-            }
-            ui.add_space(8.0);
-            if Self::rounded_button(ui, &self.t.reset_button(), text_color, button_color).clicked()
-            {
-                self.reset_timer();
-            }
-            ui.add_space(8.0);
-            if Self::rounded_button(
-                ui,
-                &self.t.button_skip().to_uppercase(),
-                text_color,
-                button_color,
-            )
-            .clicked()
-            {
-                self.skip_to_break();
-            }
-        });
-
-        ui.add_space(20.0);
-        if ui
-            .add(
-                egui::Button::new(egui::RichText::new(self.t.settings_btn()).color(text_color))
-                    .fill(button_color)
-                    .rounding(8.0),
-            )
-            .clicked()
-        {
-            self.temp_work_duration = self.config.work_duration;
-            self.temp_break_duration = self.config.break_duration;
-            self.temp_notes_directory = self.config.notes_directory.clone();
-            self.show_settings = true;
-        }
-        if ui
-            .add(
-                egui::Button::new(
-                    egui::RichText::new(self.t.survey_summary_title()).color(text_color),
-                )
-                .fill(button_color)
-                .rounding(8.0),
-            )
-            .clicked()
-        {
-            self.show_survey_summary = true;
-        }
-
-        ui.add_space(15.0);
-        if ui
-            .add(
-                egui::Button::new(
-                    egui::RichText::new(if self.notes_enabled {
-                        self.t.notes_on()
-                    } else {
-                        self.t.notes_off()
-                    })
-                    .color(text_color),
-                )
-                .fill(button_color)
-                .rounding(8.0),
-            )
-            .clicked()
-        {
-            self.notes_enabled = !self.notes_enabled;
-            self.config.notes_enabled = self.notes_enabled;
-            let _ = self.config.save();
-        }
-
-        ui.add_space(10.0);
-        if ui
-            .add(
-                egui::Button::new(
-                    egui::RichText::new(if self.todo_enabled {
-                        self.t.todo_on()
-                    } else {
-                        self.t.todo_off()
-                    })
-                    .color(text_color),
-                )
-                .fill(button_color)
-                .rounding(8.0),
-            )
-            .clicked()
-        {
-            self.todo_enabled = !self.todo_enabled;
-            self.config.todo_enabled = self.todo_enabled;
-            let _ = self.config.save();
-        }
-
-        ui.add_space(10.0);
-        if ui
-            .add(
-                egui::Button::new(
-                    egui::RichText::new(if self.kanban_enabled {
-                        "Kanban: ON"
-                    } else {
-                        "Kanban: OFF"
-                    })
-                    .color(text_color),
-                )
-                .fill(button_color)
-                .rounding(8.0),
-            )
-            .clicked()
-        {
-            self.kanban_enabled = !self.kanban_enabled;
-            self.config.kanban_enabled = self.kanban_enabled;
-            let _ = self.config.save();
-        }
-
-        if self.notes_enabled && !self.notes_content.is_empty() {
-            ui.add_space(10.0);
-            if ui
-                .add(
-                    egui::Button::new(
-                        egui::RichText::new(self.t.save_notes_btn()).color(text_color),
-                    )
-                    .fill(egui::Color32::from_rgb(0x27, 0xae, 0x60))
-                    .rounding(8.0),
-                )
-                .clicked()
-            {
-                self.save_notes();
-            }
-        }
-
-        ui.add_space(10.0);
-        if ui
-            .add(
-                egui::Button::new(egui::RichText::new(self.t.help_button()).color(text_color))
-                    .fill(button_color)
-                    .rounding(8.0),
-            )
-            .clicked()
-        {
-            self.show_help = !self.show_help;
-        }
-
-        ui.add_space(10.0);
-        ui.label(
-            egui::RichText::new(self.t.sessions_completed_label(self.sessions_completed))
-                .size(12.0)
-                .color(egui::Color32::from_rgb(0x88, 0x88, 0x88)),
-        );
-    }
-
     fn render_right_column(
         &mut self,
         ctx: &egui::Context,
@@ -946,7 +1006,12 @@ impl PomodoroApp {
         active_color: egui::Color32,
         inactive_color: egui::Color32,
         button_color: egui::Color32,
+        work_color: egui::Color32,
+        break_color: egui::Color32,
     ) {
+        // Render Timer at the top of the right column
+        self.render_timer(ui, text_color, button_color, work_color, break_color);
+
         // Render notes section if enabled
         if self.notes_enabled {
             // Tab buttons
@@ -1044,6 +1109,7 @@ impl PomodoroApp {
                 ui,
                 &mut self.todo_list,
                 &mut self.todo_input,
+                &self.kanban_board,
                 &self.t,
                 text_color,
                 button_color,

@@ -56,6 +56,9 @@ pub struct Config {
 
     #[serde(default)]
     pub kanban_enabled: bool,
+
+    #[serde(default)]
+    pub sidebar_collapsed: bool,
 }
 
 fn default_true() -> bool {
@@ -102,6 +105,7 @@ impl Default for Config {
             slash_commands: default_slash_commands(),
             todo_enabled: true,
             kanban_enabled: false,
+            sidebar_collapsed: false,
         }
     }
 }
@@ -200,6 +204,8 @@ mod tests {
             language: Language::German,
             slash_commands: HashMap::new(),
             todo_enabled: true,
+            kanban_enabled: false,
+            sidebar_collapsed: false,
         };
 
         let json = serde_json::to_string(&config).unwrap();
@@ -284,6 +290,8 @@ mod tests {
             language: Language::English,
             slash_commands: HashMap::new(),
             todo_enabled: true,
+            kanban_enabled: false,
+            sidebar_collapsed: false,
         };
 
         config.save_to_path(&config_path).unwrap();

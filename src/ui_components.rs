@@ -3,7 +3,36 @@ use crate::localization::T;
 use crate::markdown::format_inline_markdown;
 use crate::todo::TodoList;
 use eframe::egui;
-use egui::{Color32, Frame, Id, Vec2};
+use egui::{Color32, Frame, Id, Layout, Align};
+
+/// Manual word wrap utility for character-based wrapping.
+fn wrap_text(text: &str, max_chars: usize) -> String {
+    let mut result = String::new();
+    let mut current_line_len = 0;
+
+    for word in text.split_whitespace() {
+        if current_line_len + word.len() > max_chars {
+            if !result.is_empty() {
+                result.push('\n');
+            }
+            result.push_str(word);
+            current_line_len = word.len();
+        } else {
+            if !result.is_empty() && !result.ends_with('\n') {
+                result.push(' ');
+                current_line_len += 1;
+            }
+            result.push_str(word);
+            current_line_len += word.len();
+        }
+    }
+
+    if result.is_empty() {
+        text.to_string()
+    } else {
+        result
+    }
+}
 
 /// Renders a markdown preview within an egui::Frame.
 pub fn render_markdown_preview(ui: &mut egui::Ui, content: &str) {
@@ -119,6 +148,7 @@ pub fn render_todo_panel(
     ui: &mut egui::Ui,
     todo_list: &mut TodoList,
     todo_input: &mut String,
+    kanban_board: &crate::kanban::KanbanBoard,
     t: &T,
     text_color: egui::Color32,
     button_color: egui::Color32,
@@ -178,6 +208,18 @@ pub fn render_todo_panel(
 
                 ui.label(egui::RichText::new(&item.text).color(text_color));
 
+                // Add status indicator emoji for Kanban interplay
+                let status_emoji = if let Some(k_item) = kanban_board.items.iter().find(|k| k.text == item.text) {
+                    match k_item.status {
+                        KanbanStatus::Todo => "🔵",
+                        KanbanStatus::InProgress => "🟡",
+                        KanbanStatus::Done => "🟢",
+                    }
+                } else {
+                    "⚪"
+                };
+                ui.label(status_emoji);
+
                 if ui
                     .add(egui::Button::new("❌").fill(button_color).small())
                     .clicked()
@@ -200,6 +242,7 @@ pub fn render_todo_panel(
                         .strikethrough()
                         .color(cur_text_color),
                 );
+                ui.label("🟢"); // Always green if completed in TODO list
 
                 if ui
                     .add(egui::Button::new("❌").fill(button_color).small())
@@ -263,128 +306,146 @@ pub fn render_kanban_board(
     kanban_input: &mut String,
     _t: &T,
 ) {
-    ui.add_space(20.0);
-    ui.label(
-        egui::RichText::new("Kanban Board")
-            .size(24.0)
-            .color(Color32::from_rgb(0xee, 0xee, 0xee))
-            .strong(),
-    );
     ui.add_space(10.0);
+    
+    egui::Frame::none()
+        .inner_margin(egui::Margin::same(10.0))
+        .show(ui, |ui| {
+            ui.label(
+                egui::RichText::new("Kanban Board")
+                    .size(24.0)
+                    .color(Color32::from_rgb(0xee, 0xee, 0xee))
+                    .strong(),
+            );
+            ui.add_space(10.0);
 
-    // Add Kanban item input
-    ui.horizontal(|ui| {
-        let response = ui.add(
-            egui::TextEdit::singleline(kanban_input)
-                .hint_text("Add new task...")
-                .desired_width(ui.available_width() - 80.0),
-        );
-        if (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
-            && !kanban_input.trim().is_empty()
-        {
-            board.add_item(kanban_input.trim().to_string());
-            kanban_input.clear();
-            let _ = board.save();
-        }
-        if ui.button("Add").clicked() && !kanban_input.trim().is_empty() {
-            board.add_item(kanban_input.trim().to_string());
-            kanban_input.clear();
-            let _ = board.save();
-        }
-    });
+            // Add Kanban item input
+            ui.horizontal(|ui| {
+                let response = ui.add(
+                    egui::TextEdit::singleline(kanban_input)
+                        .hint_text("Add new task...")
+                        .desired_width(ui.available_width() - 220.0),
+                );
+                if (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+                    && !kanban_input.trim().is_empty()
+                {
+                    board.add_item(kanban_input.trim().to_string());
+                    kanban_input.clear();
+                    let _ = board.save();
+                }
+                if ui.button("Add").clicked() && !kanban_input.trim().is_empty() {
+                    board.add_item(kanban_input.trim().to_string());
+                    kanban_input.clear();
+                    let _ = board.save();
+                }
 
-    ui.add_space(10.0);
+                ui.add_space(5.0);
+                if ui.button("Clear").clicked() {
+                    kanban_input.clear();
+                }
 
-    let mut from_item_id = None;
-    let mut to_status = None;
+                ui.add_space(5.0);
+                if ui.button("Clear Done").clicked() {
+                    board.clear_done();
+                    let _ = board.save();
+                }
+            });
 
-    let statuses = [
-        (KanbanStatus::Todo, "TODO"),
-        (KanbanStatus::InProgress, "IN PROGRESS"),
-        (KanbanStatus::Done, "DONE"),
-    ];
+            ui.add_space(10.0);
 
-    let column_width = (ui.available_width() - 20.0) / 3.0;
+            let mut from_item_id = None;
+            let mut to_status = None;
 
-    ui.horizontal_top(|ui| {
-        for (status, label) in statuses.iter() {
-            ui.allocate_ui(Vec2::new(column_width, ui.available_height()), |ui| {
-                ui.vertical(|ui| {
-                    ui.centered_and_justified(|ui| {
-                        ui.label(
-                            egui::RichText::new(*label)
-                                .strong()
-                                .color(Color32::from_rgb(0x88, 0xcc, 0xff)),
-                        );
-                    });
-                    ui.add_space(5.0);
+            let statuses = [
+                (KanbanStatus::Todo, "TODO"),
+                (KanbanStatus::InProgress, "IN PROGRESS"),
+                (KanbanStatus::Done, "DONE"),
+            ];
 
-                    let frame = Frame::group(ui.style())
-                        .fill(Color32::from_rgb(0x1a, 0x1a, 0x2e))
-                        .inner_margin(4.0);
+            let column_width = (ui.available_width() - 20.0) / 3.0;
 
-                    let (_, dropped_payload) = ui.dnd_drop_zone::<usize, ()>(frame, |ui| {
-                        ui.set_min_size(Vec2::new(column_width, 150.0));
+            ui.horizontal_top(|ui| {
+                for (status, label) in statuses.iter() {
+                    ui.vertical(|ui| {
+                        ui.set_width(column_width);
+                        ui.vertical_centered(|ui| {
+                            ui.label(
+                                egui::RichText::new(*label)
+                                    .strong()
+                                    .color(Color32::from_rgb(0x88, 0xcc, 0xff)),
+                            );
+                        });
+                        ui.add_space(5.0);
 
-                        let items_in_col: Vec<_> = board
-                            .items
-                            .iter()
-                            .filter(|i| i.status == *status)
-                            .cloned()
-                            .collect();
+                        let frame = Frame::group(ui.style())
+                            .fill(Color32::from_rgb(0x1a, 0x1a, 0x2e))
+                            .inner_margin(4.0);
 
-                        for item in items_in_col {
-                            let item_id = Id::new(("kanban_item", item.id));
-                            let response = ui
-                                .dnd_drag_source(item_id, item.id, |ui| {
-                                    Frame::none()
-                                        .fill(Color32::from_rgb(0x2a, 0x2a, 0x40))
-                                        .rounding(4.0)
-                                        .inner_margin(8.0)
-                                        .show(ui, |ui| {
-                                            ui.set_width(ui.available_width());
-                                            ui.horizontal(|ui| {
-                                                ui.label(
-                                                    egui::RichText::new(&item.text)
-                                                        .color(Color32::WHITE),
-                                                );
-                                                ui.with_layout(
-                                                    egui::Layout::right_to_left(
-                                                        egui::Align::Center,
-                                                    ),
-                                                    |ui| {
-                                                        if ui.small_button("❌").clicked() {
-                                                            board.delete_item(item.id);
-                                                            let _ = board.save();
-                                                        }
-                                                    },
-                                                );
+                        let (_, dropped_payload) = ui.dnd_drop_zone::<usize, ()>(frame, |ui| {
+                            ui.set_min_height(250.0);
+                            ui.set_width(ui.available_width());
+
+                            let items_in_col: Vec<_> = board
+                                .items
+                                .iter()
+                                .filter(|i| i.status == *status)
+                                .cloned()
+                                .collect();
+
+                            for item in items_in_col {
+                                let item_id = Id::new(("kanban_item", item.id));
+                                let response = ui
+                                    .dnd_drag_source(item_id, item.id, |ui| {
+                                        Frame::none()
+                                            .fill(Color32::from_rgb(0x2a, 0x2a, 0x40))
+                                            .rounding(4.0)
+                                            .inner_margin(8.0)
+                                            .show(ui, |ui| {
+                                                ui.set_width(ui.available_width());
+                                                ui.horizontal(|ui| {
+                                                    let wrapped = wrap_text(&item.text, 45);
+                                                    ui.label(
+                                                        egui::RichText::new(wrapped)
+                                                            .color(Color32::WHITE),
+                                                    );
+                                                    ui.with_layout(
+                                                        egui::Layout::right_to_left(
+                                                            egui::Align::Center,
+                                                        ),
+                                                        |ui| {
+                                                            if ui.small_button("❌").clicked() {
+                                                                board.delete_item(item.id);
+                                                                let _ = board.save();
+                                                            }
+                                                        },
+                                                    );
+                                                });
                                             });
-                                        });
-                                })
-                                .response;
+                                    })
+                                    .response;
 
-                            if let Some(dragged_id) = response.dnd_release_payload() {
-                                from_item_id = Some(*dragged_id);
-                                to_status = Some(status.clone());
+                                if let Some(dragged_id) = response.dnd_release_payload() {
+                                    from_item_id = Some(*dragged_id);
+                                    to_status = Some(status.clone());
+                                }
                             }
+                        });
+
+                        if let Some(dragged_id) = dropped_payload {
+                            from_item_id = Some(*dragged_id);
+                            to_status = Some(status.clone());
                         }
                     });
 
-                    if let Some(dragged_id) = dropped_payload {
-                        from_item_id = Some(*dragged_id);
-                        to_status = Some(status.clone());
+                    if *status != KanbanStatus::Done {
+                        ui.separator();
                     }
-                });
+                }
             });
-            if *status != KanbanStatus::Done {
-                ui.separator();
-            }
-        }
-    });
 
-    if let (Some(item_id), Some(status)) = (from_item_id, to_status) {
-        board.move_item(item_id, status);
-        let _ = board.save();
-    }
+            if let (Some(item_id), Some(status)) = (from_item_id, to_status) {
+                board.move_item(item_id, status);
+                let _ = board.save();
+            }
+        });
 }
