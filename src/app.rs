@@ -511,30 +511,36 @@ impl eframe::App for PomodoroApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             if self.notes_enabled {
                 ui.horizontal(|ui| {
-                    // Left column: sidebar (fixed width)
-                    ui.vertical(|ui| {
-                        ui.set_width(280.0);
+                    let total_height = ui.available_height();
+                    
+                    // Sidebar
+                    ui.allocate_ui(egui::vec2(280.0, total_height), |ui| {
                         egui::ScrollArea::vertical()
                             .id_salt("sidebar_scroll")
+                            .auto_shrink([false, false])
                             .show(ui, |ui| {
                                 self.render_timer_column(ui, text_color, button_color, work_color, break_color);
                                 ui.add_space(20.0);
                             });
                     });
 
-                    ui.add_space(12.0);
+                    ui.add_space(10.0);
 
-                    // Right column: notes (remaining space)
-                    ui.vertical(|ui| {
-                        ui.set_min_width(ui.available_width());
+                    // Notes Area
+                    ui.allocate_ui(egui::vec2(ui.available_width(), total_height), |ui| {
                         self.render_notes_column(ctx, ui, text_color, tab_active_color, tab_inactive_color);
                     });
                 });
             } else {
                 ui.centered_and_justified(|ui| {
-                    egui::ScrollArea::vertical().id_salt("centered_timer_scroll").show(ui, |ui| {
-                        self.render_pure_timer_layout(ui, text_color, button_color, work_color, break_color);
-                    });
+                    egui::ScrollArea::vertical()
+                        .id_salt("pure_timer_scroll")
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            ui.vertical_centered(|ui| {
+                                self.render_pure_timer_layout(ui, text_color, button_color, work_color, break_color);
+                            });
+                        });
                 });
             }
         });
@@ -576,95 +582,98 @@ impl PomodoroApp {
     }
 
     fn render_timer_column(&mut self, ui: &mut egui::Ui, text_color: egui::Color32, button_color: egui::Color32, work_color: egui::Color32, break_color: egui::Color32) {
-        ui.vertical(|ui| {
-            ui.set_min_width(200.0);
-            ui.add_space(30.0);
-            ui.label(egui::RichText::new(self.format_time()).size(48.0).color(text_color));
+        ui.add_space(30.0);
+        ui.label(egui::RichText::new(self.format_time()).size(48.0).color(text_color));
+        ui.add_space(10.0);
+
+        let (mode_label, mode_color) = match self.mode {
+            TimerMode::Work => (self.t.timer_work(), work_color),
+            TimerMode::Break => (self.t.timer_break(), break_color),
+        };
+        ui.label(egui::RichText::new(mode_label).size(20.0).color(mode_color));
+        ui.add_space(20.0);
+
+        ui.horizontal(|ui| {
             ui.add_space(10.0);
-
-            let (mode_label, mode_color) = match self.mode {
-                TimerMode::Work => (self.t.timer_work(), work_color),
-                TimerMode::Break => (self.t.timer_break(), break_color),
-            };
-            ui.label(egui::RichText::new(mode_label).size(20.0).color(mode_color));
-            ui.add_space(20.0);
-
-            ui.horizontal(|ui| {
-                ui.add_space(10.0);
-                let label = if self.is_running { self.t.pause_button() } else { self.t.start_button() };
-                if Self::rounded_button(ui, &label, text_color, button_color).clicked() { self.toggle_timer(); }
-                ui.add_space(8.0);
-                if Self::rounded_button(ui, &self.t.reset_button(), text_color, button_color).clicked() { self.reset_timer(); }
-                ui.add_space(8.0);
-                if Self::rounded_button(ui, &self.t.button_skip().to_uppercase(), text_color, button_color).clicked() { self.skip_to_break(); }
-            });
-
-            ui.add_space(20.0);
-            if ui.add(egui::Button::new(egui::RichText::new(self.t.settings_btn()).color(text_color)).fill(button_color).rounding(8.0)).clicked() {
-                self.temp_work_duration = self.config.work_duration;
-                self.temp_break_duration = self.config.break_duration;
-                self.temp_notes_directory = self.config.notes_directory.clone();
-                self.show_settings = true;
-            }
-            if ui.add(egui::Button::new(egui::RichText::new(self.t.survey_summary_title()).color(text_color)).fill(button_color).rounding(8.0)).clicked() {
-                self.show_survey_summary = true;
-            }
-
-            ui.add_space(15.0);
-            if ui.add(egui::Button::new(egui::RichText::new(if self.notes_enabled { self.t.notes_on() } else { self.t.notes_off() }).color(text_color)).fill(button_color).rounding(8.0)).clicked() {
-                self.notes_enabled = !self.notes_enabled;
-                self.config.notes_enabled = self.notes_enabled;
-                let _ = self.config.save();
-            }
-
-            if self.notes_enabled && !self.notes_content.is_empty() {
-                ui.add_space(10.0);
-                if ui.add(egui::Button::new(egui::RichText::new(self.t.save_notes_btn()).color(text_color)).fill(egui::Color32::from_rgb(0x27, 0xae, 0x60)).rounding(8.0)).clicked() {
-                    self.save_notes();
-                }
-            }
-
-            ui.add_space(10.0);
-            ui.label(egui::RichText::new(self.t.sessions_completed_label(self.sessions_completed)).size(12.0).color(egui::Color32::from_rgb(0x88, 0x88, 0x88)));
-            if ui.add(egui::Button::new(egui::RichText::new(self.t.help_button()).color(text_color)).fill(button_color).rounding(8.0)).clicked() { self.show_help = true; }
-            
-            if self.todo_enabled {
-                ui_components::render_todo_panel(ui, &mut self.todo_list, &mut self.todo_input, &self.t, text_color, button_color);
-            }
+            let label = if self.is_running { self.t.pause_button() } else { self.t.start_button() };
+            if Self::rounded_button(ui, &label, text_color, button_color).clicked() { self.toggle_timer(); }
+            ui.add_space(8.0);
+            if Self::rounded_button(ui, &self.t.reset_button(), text_color, button_color).clicked() { self.reset_timer(); }
+            ui.add_space(8.0);
+            if Self::rounded_button(ui, &self.t.button_skip().to_uppercase(), text_color, button_color).clicked() { self.skip_to_break(); }
         });
+
+        ui.add_space(20.0);
+        if ui.add(egui::Button::new(egui::RichText::new(self.t.settings_btn()).color(text_color)).fill(button_color).rounding(8.0)).clicked() {
+            self.temp_work_duration = self.config.work_duration;
+            self.temp_break_duration = self.config.break_duration;
+            self.temp_notes_directory = self.config.notes_directory.clone();
+            self.show_settings = true;
+        }
+        if ui.add(egui::Button::new(egui::RichText::new(self.t.survey_summary_title()).color(text_color)).fill(button_color).rounding(8.0)).clicked() {
+            self.show_survey_summary = true;
+        }
+
+        ui.add_space(15.0);
+        if ui.add(egui::Button::new(egui::RichText::new(if self.notes_enabled { self.t.notes_on() } else { self.t.notes_off() }).color(text_color)).fill(button_color).rounding(8.0)).clicked() {
+            self.notes_enabled = !self.notes_enabled;
+            self.config.notes_enabled = self.notes_enabled;
+            let _ = self.config.save();
+        }
+
+        if self.notes_enabled && !self.notes_content.is_empty() {
+            ui.add_space(10.0);
+            if ui.add(egui::Button::new(egui::RichText::new(self.t.save_notes_btn()).color(text_color)).fill(egui::Color32::from_rgb(0x27, 0xae, 0x60)).rounding(8.0)).clicked() {
+                self.save_notes();
+            }
+        }
+
+        ui.add_space(10.0);
+        if ui.add(egui::Button::new(egui::RichText::new(self.t.help_button()).color(text_color)).fill(button_color).rounding(8.0)).clicked() {
+            self.show_help = !self.show_help;
+        }
+
+        ui.add_space(10.0);
+        ui.label(egui::RichText::new(self.t.sessions_completed_label(self.sessions_completed)).size(12.0).color(egui::Color32::from_rgb(0x88, 0x88, 0x88)));
+        
+        if self.todo_enabled {
+            ui_components::render_todo_panel(ui, &mut self.todo_list, &mut self.todo_input, &self.t, text_color, button_color);
+        }
     }
 
     fn render_notes_column(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, text_color: egui::Color32, active_color: egui::Color32, inactive_color: egui::Color32) {
-        ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
-            ui.horizontal(|ui| {
-                let edit_color = if self.notes_view == NotesView::Edit { active_color } else { inactive_color };
-                let preview_color = if self.notes_view == NotesView::Preview { active_color } else { inactive_color };
-                if ui.add(egui::Button::new(egui::RichText::new(self.t.edit_tab()).size(12.0).color(text_color)).fill(edit_color).rounding(4.0)).clicked() {
-                    self.notes_view = NotesView::Edit;
-                    self.focus_notes_input = true;
-                }
-                if ui.add(egui::Button::new(egui::RichText::new(self.t.preview_tab()).size(12.0).color(text_color)).fill(preview_color).rounding(4.0)).clicked() {
-                    self.notes_view = NotesView::Preview;
-                }
-            });
+        // Tab buttons
+        ui.horizontal(|ui| {
+            let edit_color = if self.notes_view == NotesView::Edit { active_color } else { inactive_color };
+            let preview_color = if self.notes_view == NotesView::Preview { active_color } else { inactive_color };
+            if ui.add(egui::Button::new(egui::RichText::new(self.t.edit_tab()).size(12.0).color(text_color)).fill(edit_color).rounding(4.0)).clicked() {
+                self.notes_view = NotesView::Edit;
+                self.focus_notes_input = true;
+            }
+            if ui.add(egui::Button::new(egui::RichText::new(self.t.preview_tab()).size(12.0).color(text_color)).fill(preview_color).rounding(4.0)).clicked() {
+                self.notes_view = NotesView::Preview;
+            }
+        });
 
-            ui.add_space(5.0);
-            match self.notes_view {
-                NotesView::Edit => {
-                    if self.focus_notes_input {
-                        ctx.memory_mut(|mem| mem.request_focus(egui::Id::new("notes_text_input")));
-                        self.focus_notes_input = false;
-                    }
-                    egui::ScrollArea::vertical()
-                        .id_salt("notes_edit_scroll")
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
+        ui.add_space(5.0);
+        match self.notes_view {
+            NotesView::Edit => {
+                if self.focus_notes_input {
+                    ctx.memory_mut(|mem| mem.request_focus(egui::Id::new("notes_text_input")));
+                    self.focus_notes_input = false;
+                }
+                
+                egui::ScrollArea::vertical()
+                    .id_salt("notes_edit_scroll")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
                         let output = ui.add(egui::TextEdit::multiline(&mut self.notes_content)
                             .id(egui::Id::new("notes_text_input"))
                             .desired_width(f32::INFINITY)
-                            .desired_rows(20)
+                            .desired_rows(30)
                             .lock_focus(true)
                             .font(egui::TextStyle::Monospace));
+                        
                         if let Some(pos) = self.requested_cursor_pos.take() {
                             if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), output.id) {
                                 state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(pos))));
@@ -672,18 +681,17 @@ impl PomodoroApp {
                             }
                         }
                     });
-                    self.render_dropdown(ui);
-                }
-                NotesView::Preview => {
-                    egui::ScrollArea::vertical()
-                        .id_salt("notes_preview_scroll")
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            self.render_markdown_preview(ui);
-                        });
-                }
+                self.render_dropdown(ui);
             }
-        });
+            NotesView::Preview => {
+                egui::ScrollArea::vertical()
+                    .id_salt("notes_preview_scroll")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        self.render_markdown_preview(ui);
+                    });
+            }
+        }
     }
 
     fn render_pure_timer_layout(&mut self, ui: &mut egui::Ui, text_color: egui::Color32, button_color: egui::Color32, work_color: egui::Color32, break_color: egui::Color32) {
