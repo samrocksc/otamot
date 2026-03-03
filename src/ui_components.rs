@@ -160,66 +160,64 @@ pub fn render_todo_panel(
         });
     });
 
-    // TODO list scroll area
+    // TODO list area
     ui.add_space(5.0);
-    egui::ScrollArea::vertical()
-        .id_salt("todo_scroll_area")
-        .max_height(350.0)
-        .show(ui, |ui| {
-            let mut to_remove = None;
-            let mut to_toggle = None;
+    // Use the available space in the column; the parent sidebar provides scrolling
+    ui.vertical(|ui| {
+        let mut to_remove = None;
+        let mut to_toggle = None;
 
-            // Render Active items
-            for item in todo_list.active.iter_mut() {
-                ui.horizontal(|ui| {
-                    if ui.checkbox(&mut item.completed, "").clicked() {
-                        to_toggle = Some(item.id);
-                    }
+        // Render Active items
+        for item in todo_list.active.iter_mut() {
+            ui.horizontal(|ui| {
+                if ui.checkbox(&mut item.completed, "").clicked() {
+                    to_toggle = Some(item.id);
+                }
 
-                    ui.label(egui::RichText::new(&item.text).color(text_color));
+                ui.label(egui::RichText::new(&item.text).color(text_color));
 
-                    if ui
-                        .add(egui::Button::new("❌").fill(button_color).small())
-                        .clicked()
-                    {
-                        to_remove = Some(item.id);
-                    }
-                });
-            }
+                if ui
+                    .add(egui::Button::new("❌").fill(button_color).small())
+                    .clicked()
+                {
+                    to_remove = Some(item.id);
+                }
+            });
+        }
 
-            // Render Completed items
-            for item in todo_list.completed.iter_mut() {
-                ui.horizontal(|ui| {
-                    if ui.checkbox(&mut item.completed, "").clicked() {
-                        to_toggle = Some(item.id);
-                    }
+        // Render Completed items
+        for item in todo_list.completed.iter_mut() {
+            ui.horizontal(|ui| {
+                if ui.checkbox(&mut item.completed, "").clicked() {
+                    to_toggle = Some(item.id);
+                }
 
-                    let cur_text_color = egui::Color32::from_rgb(0x88, 0x88, 0x88);
-                    ui.label(
-                        egui::RichText::new(&item.text)
-                            .strikethrough()
-                            .color(cur_text_color),
-                    );
+                let cur_text_color = egui::Color32::from_rgb(0x88, 0x88, 0x88);
+                ui.label(
+                    egui::RichText::new(&item.text)
+                        .strikethrough()
+                        .color(cur_text_color),
+                );
 
-                    if ui
-                        .add(egui::Button::new("❌").fill(button_color).small())
-                        .clicked()
-                    {
-                        to_remove = Some(item.id);
-                    }
-                });
-            }
+                if ui
+                    .add(egui::Button::new("❌").fill(button_color).small())
+                    .clicked()
+                {
+                    to_remove = Some(item.id);
+                }
+            });
+        }
 
-            if let Some(id) = to_toggle {
-                todo_list.toggle(id);
-                let _ = todo_list.save();
-            }
+        if let Some(id) = to_toggle {
+            todo_list.toggle(id);
+            let _ = todo_list.save();
+        }
 
-            if let Some(id) = to_remove {
-                todo_list.remove(id);
-                let _ = todo_list.save();
-            }
-        });
+        if let Some(id) = to_remove {
+            todo_list.remove(id);
+            let _ = todo_list.save();
+        }
+    });
 
     // Clear completed button
     let completed = todo_list.completed_count();

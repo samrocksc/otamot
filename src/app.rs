@@ -511,15 +511,23 @@ impl eframe::App for PomodoroApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             if self.notes_enabled {
                 ui.horizontal(|ui| {
-                    egui::ScrollArea::vertical().id_salt("timer_scroll").show(ui, |ui| {
-                        self.render_timer_column(ui, text_color, button_color, work_color, break_color);
+                    ui.vertical(|ui| {
+                        ui.set_max_width(250.0);
+                        egui::ScrollArea::vertical()
+                            .id_salt("sidebar_scroll")
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                            self.render_timer_column(ui, text_color, button_color, work_color, break_color);
+                        });
                     });
                     ui.add_space(20.0);
                     self.render_notes_column(ctx, ui, text_color, tab_active_color, tab_inactive_color);
                 });
             } else {
-                egui::ScrollArea::vertical().id_salt("pure_timer_scroll").show(ui, |ui| {
-                    self.render_pure_timer_layout(ui, text_color, button_color, work_color, break_color);
+                ui.centered_and_justified(|ui| {
+                    egui::ScrollArea::vertical().id_salt("centered_timer_scroll").show(ui, |ui| {
+                        self.render_pure_timer_layout(ui, text_color, button_color, work_color, break_color);
+                    });
                 });
             }
         });
@@ -561,66 +569,62 @@ impl PomodoroApp {
     }
 
     fn render_timer_column(&mut self, ui: &mut egui::Ui, text_color: egui::Color32, button_color: egui::Color32, work_color: egui::Color32, break_color: egui::Color32) {
-        egui::ScrollArea::vertical()
-            .id_salt("sidebar_scroll_area")
-            .show(ui, |ui| {
-                ui.vertical(|ui| {
-                    ui.set_min_width(200.0);
-                    ui.add_space(30.0);
-                    ui.label(egui::RichText::new(self.format_time()).size(48.0).color(text_color));
-                    ui.add_space(10.0);
+        ui.vertical(|ui| {
+            ui.set_min_width(200.0);
+            ui.add_space(30.0);
+            ui.label(egui::RichText::new(self.format_time()).size(48.0).color(text_color));
+            ui.add_space(10.0);
 
-                    let (mode_label, mode_color) = match self.mode {
-                        TimerMode::Work => (self.t.timer_work(), work_color),
-                        TimerMode::Break => (self.t.timer_break(), break_color),
-                    };
-                    ui.label(egui::RichText::new(mode_label).size(20.0).color(mode_color));
-                    ui.add_space(20.0);
+            let (mode_label, mode_color) = match self.mode {
+                TimerMode::Work => (self.t.timer_work(), work_color),
+                TimerMode::Break => (self.t.timer_break(), break_color),
+            };
+            ui.label(egui::RichText::new(mode_label).size(20.0).color(mode_color));
+            ui.add_space(20.0);
 
-                    ui.horizontal(|ui| {
-                        ui.add_space(10.0);
-                        let label = if self.is_running { self.t.pause_button() } else { self.t.start_button() };
-                        if Self::rounded_button(ui, &label, text_color, button_color).clicked() { self.toggle_timer(); }
-                        ui.add_space(8.0);
-                        if Self::rounded_button(ui, &self.t.reset_button(), text_color, button_color).clicked() { self.reset_timer(); }
-                        ui.add_space(8.0);
-                        if Self::rounded_button(ui, &self.t.button_skip().to_uppercase(), text_color, button_color).clicked() { self.skip_to_break(); }
-                    });
-
-                    ui.add_space(20.0);
-                    if ui.add(egui::Button::new(egui::RichText::new(self.t.settings_btn()).color(text_color)).fill(button_color).rounding(8.0)).clicked() {
-                        self.temp_work_duration = self.config.work_duration;
-                        self.temp_break_duration = self.config.break_duration;
-                        self.temp_notes_directory = self.config.notes_directory.clone();
-                        self.show_settings = true;
-                    }
-                    if ui.add(egui::Button::new(egui::RichText::new(self.t.survey_summary_title()).color(text_color)).fill(button_color).rounding(8.0)).clicked() {
-                        self.show_survey_summary = true;
-                    }
-
-                    ui.add_space(15.0);
-                    if ui.add(egui::Button::new(egui::RichText::new(if self.notes_enabled { self.t.notes_on() } else { self.t.notes_off() }).color(text_color)).fill(button_color).rounding(8.0)).clicked() {
-                        self.notes_enabled = !self.notes_enabled;
-                        self.config.notes_enabled = self.notes_enabled;
-                        let _ = self.config.save();
-                    }
-
-                    if self.notes_enabled && !self.notes_content.is_empty() {
-                        ui.add_space(10.0);
-                        if ui.add(egui::Button::new(egui::RichText::new(self.t.save_notes_btn()).color(text_color)).fill(egui::Color32::from_rgb(0x27, 0xae, 0x60)).rounding(8.0)).clicked() {
-                            self.save_notes();
-                        }
-                    }
-
-                    ui.add_space(10.0);
-                    ui.label(egui::RichText::new(self.t.sessions_completed_label(self.sessions_completed)).size(12.0).color(egui::Color32::from_rgb(0x88, 0x88, 0x88)));
-                    if ui.add(egui::Button::new(egui::RichText::new(self.t.help_button()).color(text_color)).fill(button_color).rounding(8.0)).clicked() { self.show_help = true; }
-                    
-                    if self.todo_enabled {
-                        ui_components::render_todo_panel(ui, &mut self.todo_list, &mut self.todo_input, &self.t, text_color, button_color);
-                    }
-                });
+            ui.horizontal(|ui| {
+                ui.add_space(10.0);
+                let label = if self.is_running { self.t.pause_button() } else { self.t.start_button() };
+                if Self::rounded_button(ui, &label, text_color, button_color).clicked() { self.toggle_timer(); }
+                ui.add_space(8.0);
+                if Self::rounded_button(ui, &self.t.reset_button(), text_color, button_color).clicked() { self.reset_timer(); }
+                ui.add_space(8.0);
+                if Self::rounded_button(ui, &self.t.button_skip().to_uppercase(), text_color, button_color).clicked() { self.skip_to_break(); }
             });
+
+            ui.add_space(20.0);
+            if ui.add(egui::Button::new(egui::RichText::new(self.t.settings_btn()).color(text_color)).fill(button_color).rounding(8.0)).clicked() {
+                self.temp_work_duration = self.config.work_duration;
+                self.temp_break_duration = self.config.break_duration;
+                self.temp_notes_directory = self.config.notes_directory.clone();
+                self.show_settings = true;
+            }
+            if ui.add(egui::Button::new(egui::RichText::new(self.t.survey_summary_title()).color(text_color)).fill(button_color).rounding(8.0)).clicked() {
+                self.show_survey_summary = true;
+            }
+
+            ui.add_space(15.0);
+            if ui.add(egui::Button::new(egui::RichText::new(if self.notes_enabled { self.t.notes_on() } else { self.t.notes_off() }).color(text_color)).fill(button_color).rounding(8.0)).clicked() {
+                self.notes_enabled = !self.notes_enabled;
+                self.config.notes_enabled = self.notes_enabled;
+                let _ = self.config.save();
+            }
+
+            if self.notes_enabled && !self.notes_content.is_empty() {
+                ui.add_space(10.0);
+                if ui.add(egui::Button::new(egui::RichText::new(self.t.save_notes_btn()).color(text_color)).fill(egui::Color32::from_rgb(0x27, 0xae, 0x60)).rounding(8.0)).clicked() {
+                    self.save_notes();
+                }
+            }
+
+            ui.add_space(10.0);
+            ui.label(egui::RichText::new(self.t.sessions_completed_label(self.sessions_completed)).size(12.0).color(egui::Color32::from_rgb(0x88, 0x88, 0x88)));
+            if ui.add(egui::Button::new(egui::RichText::new(self.t.help_button()).color(text_color)).fill(button_color).rounding(8.0)).clicked() { self.show_help = true; }
+            
+            if self.todo_enabled {
+                ui_components::render_todo_panel(ui, &mut self.todo_list, &mut self.todo_input, &self.t, text_color, button_color);
+            }
+        });
     }
 
     fn render_notes_column(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, text_color: egui::Color32, active_color: egui::Color32, inactive_color: egui::Color32) {
@@ -676,46 +680,42 @@ impl PomodoroApp {
     }
 
     fn render_pure_timer_layout(&mut self, ui: &mut egui::Ui, text_color: egui::Color32, button_color: egui::Color32, work_color: egui::Color32, break_color: egui::Color32) {
-        egui::ScrollArea::vertical()
-            .id_salt("pure_timer_scroll_area")
-            .show(ui, |ui| {
-                ui.vertical_centered(|ui| {
-                    ui.add_space(60.0);
-                    ui.label(egui::RichText::new(self.format_time()).size(48.0).color(text_color));
-                    ui.add_space(10.0);
-                    let (label, color) = match self.mode { TimerMode::Work => (self.t.timer_work(), work_color), TimerMode::Break => (self.t.timer_break(), break_color) };
-                    ui.label(egui::RichText::new(label).size(20.0).color(color));
-                    ui.add_space(30.0);
-                    ui.horizontal(|ui| {
-                        ui.add_space(20.0);
-                        let btn = if self.is_running { self.t.pause_button() } else { self.t.start_button() };
-                        if Self::rounded_button(ui, &btn, text_color, button_color).clicked() { self.toggle_timer(); }
-                        ui.add_space(10.0);
-                        if Self::rounded_button(ui, &self.t.reset_button(), text_color, button_color).clicked() { self.reset_timer(); }
-                        ui.add_space(10.0);
-                        if Self::rounded_button(ui, &self.t.button_skip().to_uppercase(), text_color, button_color).clicked() { self.skip_to_break(); }
-                    });
-                    ui.add_space(40.0);
-                    if ui.add(egui::Button::new(egui::RichText::new(self.t.settings_btn()).color(text_color)).fill(button_color).rounding(8.0)).clicked() {
-                        self.temp_work_duration = self.config.work_duration; self.temp_break_duration = self.config.break_duration;
-                        self.temp_notes_directory = self.config.notes_directory.clone(); self.show_settings = true;
-                    }
-                    if ui.add(egui::Button::new(egui::RichText::new(self.t.survey_summary_title()).color(text_color)).fill(button_color).rounding(8.0)).clicked() {
-                        self.show_survey_summary = true;
-                    }
-                    ui.add_space(10.0);
-                    if ui.add(egui::Button::new(egui::RichText::new(if self.notes_enabled { self.t.notes_on() } else { self.t.notes_off() }).color(text_color)).fill(button_color).rounding(8.0)).clicked() {
-                        self.notes_enabled = !self.notes_enabled; self.config.notes_enabled = self.notes_enabled; let _ = self.config.save();
-                    }
-                    ui.add_space(10.0);
-                    ui.label(egui::RichText::new(self.t.sessions_completed_label(self.sessions_completed)).size(12.0).color(egui::Color32::from_rgb(0x88, 0x88, 0x88)));
-                    if ui.add(egui::Button::new(egui::RichText::new(self.t.help_button()).color(text_color)).fill(button_color).rounding(8.0)).clicked() { self.show_help = true; }
-                    
-                    if self.todo_enabled {
-                        ui_components::render_todo_panel(ui, &mut self.todo_list, &mut self.todo_input, &self.t, text_color, button_color);
-                    }
-                });
+        ui.vertical_centered(|ui| {
+            ui.add_space(60.0);
+            ui.label(egui::RichText::new(self.format_time()).size(48.0).color(text_color));
+            ui.add_space(10.0);
+            let (label, color) = match self.mode { TimerMode::Work => (self.t.timer_work(), work_color), TimerMode::Break => (self.t.timer_break(), break_color) };
+            ui.label(egui::RichText::new(label).size(20.0).color(color));
+            ui.add_space(30.0);
+            ui.horizontal(|ui| {
+                ui.add_space(20.0);
+                let btn = if self.is_running { self.t.pause_button() } else { self.t.start_button() };
+                if Self::rounded_button(ui, &btn, text_color, button_color).clicked() { self.toggle_timer(); }
+                ui.add_space(10.0);
+                if Self::rounded_button(ui, &self.t.reset_button(), text_color, button_color).clicked() { self.reset_timer(); }
+                ui.add_space(10.0);
+                if Self::rounded_button(ui, &self.t.button_skip().to_uppercase(), text_color, button_color).clicked() { self.skip_to_break(); }
             });
+            ui.add_space(40.0);
+            if ui.add(egui::Button::new(egui::RichText::new(self.t.settings_btn()).color(text_color)).fill(button_color).rounding(8.0)).clicked() {
+                self.temp_work_duration = self.config.work_duration; self.temp_break_duration = self.config.break_duration;
+                self.temp_notes_directory = self.config.notes_directory.clone(); self.show_settings = true;
+            }
+            if ui.add(egui::Button::new(egui::RichText::new(self.t.survey_summary_title()).color(text_color)).fill(button_color).rounding(8.0)).clicked() {
+                self.show_survey_summary = true;
+            }
+            ui.add_space(10.0);
+            if ui.add(egui::Button::new(egui::RichText::new(if self.notes_enabled { self.t.notes_on() } else { self.t.notes_off() }).color(text_color)).fill(button_color).rounding(8.0)).clicked() {
+                self.notes_enabled = !self.notes_enabled; self.config.notes_enabled = self.notes_enabled; let _ = self.config.save();
+            }
+            ui.add_space(10.0);
+            ui.label(egui::RichText::new(self.t.sessions_completed_label(self.sessions_completed)).size(12.0).color(egui::Color32::from_rgb(0x88, 0x88, 0x88)));
+            if ui.add(egui::Button::new(egui::RichText::new(self.t.help_button()).color(text_color)).fill(button_color).rounding(8.0)).clicked() { self.show_help = true; }
+            
+            if self.todo_enabled {
+                ui_components::render_todo_panel(ui, &mut self.todo_list, &mut self.todo_input, &self.t, text_color, button_color);
+            }
+        });
     }
 
     fn render_dropdown(&mut self, ui: &mut egui::Ui) {
@@ -743,94 +743,104 @@ impl PomodoroApp {
     pub fn show_settings_dialog(&mut self, ctx: &egui::Context, text_color: egui::Color32, button_color: egui::Color32) {
         if !self.show_settings { return; }
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.vertical_centered(|ui| {
-                ui.add_space(20.0);
-                ui.label(egui::RichText::new(format!("⚙ {}", self.t.settings_title())).size(28.0).color(text_color).strong());
-                ui.add_space(30.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(40.0);
-                    ui.label(egui::RichText::new(format!("{} {} min", self.t.work_duration(), self.temp_work_duration)).size(18.0).color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)));
-                    if ui.add(egui::Button::new("-").fill(button_color).min_size(egui::vec2(40.0, 30.0))).clicked() { self.temp_work_duration = self.temp_work_duration.saturating_sub(1).max(1); }
-                    if ui.add(egui::Button::new("+").fill(button_color).min_size(egui::vec2(40.0, 30.0))).clicked() { self.temp_work_duration = self.temp_work_duration.saturating_add(1).min(60); }
-                });
-                ui.add_space(15.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(40.0);
-                    ui.label(egui::RichText::new(format!("{} {} min", self.t.break_duration(), self.temp_break_duration)).size(18.0).color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)));
-                    if ui.add(egui::Button::new("-").fill(button_color).min_size(egui::vec2(40.0, 30.0))).clicked() { self.temp_break_duration = self.temp_break_duration.saturating_sub(1).max(1); }
-                    if ui.add(egui::Button::new("+").fill(button_color).min_size(egui::vec2(40.0, 30.0))).clicked() { self.temp_break_duration = self.temp_break_duration.saturating_add(1).min(30); }
-                });
-                ui.add_space(20.0);
-                ui.horizontal(|ui| { ui.add_space(40.0); ui.label(egui::RichText::new(self.t.notes_directory()).size(16.0).color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc))); });
-                ui.horizontal(|ui| { ui.add_space(40.0); ui.add(egui::TextEdit::singleline(&mut self.temp_notes_directory).desired_width(350.0)); });
-                ui.add_space(20.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(40.0);
-                    if ui.add(egui::Button::new(egui::RichText::new(if self.config.survey_enabled { self.t.surveys_on() } else { self.t.surveys_off() }).color(text_color)).fill(button_color)).clicked() {
-                        self.config.survey_enabled = !self.config.survey_enabled; let _ = self.config.save();
-                    }
-                });
-                ui.add_space(15.0);
-                ui.horizontal(|ui| { ui.add_space(40.0); if ui.add(egui::Button::new(egui::RichText::new(self.t.reset_survey_data_btn()).color(egui::Color32::from_rgb(0xe7, 0x4c, 0x3c))).fill(button_color)).clicked() { self.reset_survey_data(); } });
-                ui.add_space(20.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(40.0);
-                    ui.label(egui::RichText::new(self.t.language_setting()).size(18.0).color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)));
-                    egui::ComboBox::from_label("").selected_text(match self.temp_language { Language::English => self.t.lang_en(), Language::German => self.t.lang_de() }).show_ui(ui, |ui| {
-                        ui.selectable_value(&mut self.temp_language, Language::English, self.t.lang_en());
-                        ui.selectable_value(&mut self.temp_language, Language::German, self.t.lang_de());
+            egui::ScrollArea::vertical()
+                .id_salt("settings_scroll_area")
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(20.0);
+                        ui.label(egui::RichText::new(format!("⚙ {}", self.t.settings_title())).size(28.0).color(text_color).strong());
+                        ui.add_space(30.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(40.0);
+                            ui.label(egui::RichText::new(format!("{} {} min", self.t.work_duration(), self.temp_work_duration)).size(18.0).color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)));
+                            if ui.add(egui::Button::new("-").fill(button_color).min_size(egui::vec2(40.0, 30.0))).clicked() { self.temp_work_duration = self.temp_work_duration.saturating_sub(1).max(1); }
+                            if ui.add(egui::Button::new("+").fill(button_color).min_size(egui::vec2(40.0, 30.0))).clicked() { self.temp_work_duration = self.temp_work_duration.saturating_add(1).min(60); }
+                        });
+                        ui.add_space(15.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(40.0);
+                            ui.label(egui::RichText::new(format!("{} {} min", self.t.break_duration(), self.temp_break_duration)).size(18.0).color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)));
+                            if ui.add(egui::Button::new("-").fill(button_color).min_size(egui::vec2(40.0, 30.0))).clicked() { self.temp_break_duration = self.temp_break_duration.saturating_sub(1).max(1); }
+                            if ui.add(egui::Button::new("+").fill(button_color).min_size(egui::vec2(40.0, 30.0))).clicked() { self.temp_break_duration = self.temp_break_duration.saturating_add(1).min(30); }
+                        });
+                        ui.add_space(20.0);
+                        ui.horizontal(|ui| { ui.add_space(40.0); ui.label(egui::RichText::new(self.t.notes_directory()).size(16.0).color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc))); });
+                        ui.horizontal(|ui| { ui.add_space(40.0); ui.add(egui::TextEdit::singleline(&mut self.temp_notes_directory).desired_width(350.0)); });
+                        ui.add_space(20.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(40.0);
+                            if ui.add(egui::Button::new(egui::RichText::new(if self.config.survey_enabled { self.t.surveys_on() } else { self.t.surveys_off() }).color(text_color)).fill(button_color)).clicked() {
+                                self.config.survey_enabled = !self.config.survey_enabled; let _ = self.config.save();
+                            }
+                        });
+                        ui.add_space(15.0);
+                        ui.horizontal(|ui| { ui.add_space(40.0); if ui.add(egui::Button::new(egui::RichText::new(self.t.reset_survey_data_btn()).color(egui::Color32::from_rgb(0xe7, 0x4c, 0x3c))).fill(button_color)).clicked() { self.reset_survey_data(); } });
+                        ui.add_space(20.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(40.0);
+                            ui.label(egui::RichText::new(self.t.language_setting()).size(18.0).color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)));
+                            egui::ComboBox::from_label("").selected_text(match self.temp_language { Language::English => self.t.lang_en(), Language::German => self.t.lang_de() }).show_ui(ui, |ui| {
+                                ui.selectable_value(&mut self.temp_language, Language::English, self.t.lang_en());
+                                ui.selectable_value(&mut self.temp_language, Language::German, self.t.lang_de());
+                            });
+                        });
+                        ui.add_space(20.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(40.0);
+                            if ui.add(egui::Button::new(egui::RichText::new(if self.todo_enabled { self.t.todo_on() } else { self.t.todo_off() }).color(text_color)).fill(button_color)).clicked() {
+                                self.todo_enabled = !self.todo_enabled;
+                            }
+                        });
+                        ui.add_space(40.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(40.0);
+                            if ui_components::rounded_button(ui, &self.t.button_cancel(), text_color, button_color).clicked() {
+                                self.show_settings = false; self.temp_work_duration = self.config.work_duration; self.temp_break_duration = self.config.break_duration;
+                                self.temp_notes_directory = self.config.notes_directory.clone(); self.temp_language = self.config.language;
+                            }
+                            ui.add_space(15.0);
+                            if ui.add(egui::Button::new(self.t.button_save()).fill(egui::Color32::from_rgb(0x27, 0xae, 0x60)).rounding(8.0).min_size(egui::vec2(100.0, 35.0))).clicked() {
+                                self.save_settings(); self.show_settings = false;
+                            }
+                        });
+                        ui.add_space(20.0);
                     });
                 });
-                ui.add_space(20.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(40.0);
-                    if ui.add(egui::Button::new(egui::RichText::new(if self.todo_enabled { self.t.todo_on() } else { self.t.todo_off() }).color(text_color)).fill(button_color)).clicked() {
-                        self.todo_enabled = !self.todo_enabled;
-                    }
-                });
-                ui.add_space(40.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(40.0);
-                    if ui_components::rounded_button(ui, &self.t.button_cancel(), text_color, button_color).clicked() {
-                        self.show_settings = false; self.temp_work_duration = self.config.work_duration; self.temp_break_duration = self.config.break_duration;
-                        self.temp_notes_directory = self.config.notes_directory.clone(); self.temp_language = self.config.language;
-                    }
-                    ui.add_space(15.0);
-                    if ui.add(egui::Button::new(self.t.button_save()).fill(egui::Color32::from_rgb(0x27, 0xae, 0x60)).rounding(8.0).min_size(egui::vec2(100.0, 35.0))).clicked() {
-                        self.save_settings(); self.show_settings = false;
-                    }
-                });
-            });
         });
     }
 
     pub fn show_survey_dialog(&mut self, ctx: &egui::Context, text_color: egui::Color32, button_color: egui::Color32) {
         if !self.show_survey { return; }
         egui::Window::new(format!("{} 🎉", self.t.survey_complete_title())).collapsible(false).resizable(false).show(ctx, |ui| {
-            ui.set_min_width(400.0);
-            ui.label(egui::RichText::new(self.t.survey_question_focus()).size(16.0).color(text_color));
-            ui.add_space(15.0);
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(self.t.survey_rating_label(self.survey_focus_rating)).color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)));
-                if ui.add(egui::Button::new("-").fill(button_color)).clicked() { self.survey_focus_rating = self.survey_focus_rating.saturating_sub(1).max(1); }
-                if ui.add(egui::Button::new("+").fill(button_color)).clicked() { self.survey_focus_rating = self.survey_focus_rating.saturating_add(1).min(10); }
-            });
-            ui.add_space(15.0);
-            ui.label(egui::RichText::new(self.t.survey_question_helped()).color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)));
-            ui.add(egui::TextEdit::singleline(&mut self.survey_what_helped).desired_width(350.0).hint_text(self.t.helped_hint()));
-            ui.add_space(10.0);
-            ui.label(egui::RichText::new(self.t.survey_question_hurt()).color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)));
-            ui.add(egui::TextEdit::singleline(&mut self.survey_what_hurt).desired_width(350.0).hint_text(self.t.hurt_hint()));
-            ui.add_space(20.0);
-            if self.survey_data.focus_count > 0 {
-                ui.separator(); ui.add_space(5.0);
-                ui.label(egui::RichText::new(self.t.avg_focus_today(self.survey_data.average_focus_today)).size(12.0).color(egui::Color32::from_rgb(0x88, 0x88, 0x88)));
-                ui.label(egui::RichText::new(self.t.avg_focus_overall(self.survey_data.average_focus)).size(12.0).color(egui::Color32::from_rgb(0x88, 0x88, 0x88)));
-            }
-            ui.horizontal(|ui| {
-                if ui.add(egui::Button::new(self.t.button_skip()).fill(button_color)).clicked() { self.skip_survey(); }
-                if ui.add(egui::Button::new(self.t.button_submit()).fill(egui::Color32::from_rgb(0x27, 0xae, 0x60))).clicked() { self.submit_survey(); }
-            });
+            egui::ScrollArea::vertical()
+                .id_salt("survey_scroll_area")
+                .show(ui, |ui| {
+                    ui.set_min_width(400.0);
+                    ui.label(egui::RichText::new(self.t.survey_question_focus()).size(16.0).color(text_color));
+                    ui.add_space(15.0);
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(self.t.survey_rating_label(self.survey_focus_rating)).color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)));
+                        if ui.add(egui::Button::new("-").fill(button_color)).clicked() { self.survey_focus_rating = self.survey_focus_rating.saturating_sub(1).max(1); }
+                        if ui.add(egui::Button::new("+").fill(button_color)).clicked() { self.survey_focus_rating = self.survey_focus_rating.saturating_add(1).min(10); }
+                    });
+                    ui.add_space(15.0);
+                    ui.label(egui::RichText::new(self.t.survey_question_helped()).color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)));
+                    ui.add(egui::TextEdit::singleline(&mut self.survey_what_helped).desired_width(350.0).hint_text(self.t.helped_hint()));
+                    ui.add_space(10.0);
+                    ui.label(egui::RichText::new(self.t.survey_question_hurt()).color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)));
+                    ui.add(egui::TextEdit::singleline(&mut self.survey_what_hurt).desired_width(350.0).hint_text(self.t.hurt_hint()));
+                    ui.add_space(20.0);
+                    if self.survey_data.focus_count > 0 {
+                        ui.separator(); ui.add_space(5.0);
+                        ui.label(egui::RichText::new(self.t.avg_focus_today(self.survey_data.average_focus_today)).size(12.0).color(egui::Color32::from_rgb(0x88, 0x88, 0x88)));
+                        ui.label(egui::RichText::new(self.t.avg_focus_overall(self.survey_data.average_focus)).size(12.0).color(egui::Color32::from_rgb(0x88, 0x88, 0x88)));
+                    }
+                    ui.horizontal(|ui| {
+                        if ui.add(egui::Button::new(self.t.button_skip()).fill(button_color)).clicked() { self.skip_survey(); }
+                        if ui.add(egui::Button::new(self.t.button_submit()).fill(egui::Color32::from_rgb(0x27, 0xae, 0x60))).clicked() { self.submit_survey(); }
+                    });
+                });
         });
     }
 
