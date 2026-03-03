@@ -633,6 +633,13 @@ impl PomodoroApp {
             let _ = self.config.save();
         }
 
+        ui.add_space(10.0);
+        if ui.add(egui::Button::new(egui::RichText::new(if self.todo_enabled { self.t.todo_on() } else { self.t.todo_off() }).color(text_color)).fill(button_color).rounding(8.0)).clicked() {
+            self.todo_enabled = !self.todo_enabled;
+            self.config.todo_enabled = self.todo_enabled;
+            let _ = self.config.save();
+        }
+
         if self.notes_enabled && !self.notes_content.is_empty() {
             ui.add_space(10.0);
             if ui.add(egui::Button::new(egui::RichText::new(self.t.save_notes_btn()).color(text_color)).fill(egui::Color32::from_rgb(0x27, 0xae, 0x60)).rounding(8.0)).clicked() {
@@ -802,13 +809,6 @@ impl PomodoroApp {
                                 ui.selectable_value(&mut self.temp_language, Language::English, self.t.lang_en());
                                 ui.selectable_value(&mut self.temp_language, Language::German, self.t.lang_de());
                             });
-                        });
-                        ui.add_space(20.0);
-                        ui.horizontal(|ui| {
-                            ui.add_space(40.0);
-                            if ui.add(egui::Button::new(egui::RichText::new(if self.todo_enabled { self.t.todo_on() } else { self.t.todo_off() }).color(text_color)).fill(button_color)).clicked() {
-                                self.todo_enabled = !self.todo_enabled;
-                            }
                         });
                         ui.add_space(40.0);
                         ui.horizontal(|ui| {
