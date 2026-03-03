@@ -12,6 +12,7 @@ pub mod survey;
 pub mod timer;
 pub mod todo;
 pub mod ui_components;
+pub mod vim;
 
 
 // Note: app module uses eframe which requires a GUI environment

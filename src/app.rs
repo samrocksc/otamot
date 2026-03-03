@@ -13,6 +13,7 @@ use otamot::survey::SurveyData;
 use otamot::timer::TimerMode;
 use otamot::todo::TodoList;
 use otamot::ui_components;
+use otamot::vim::{VimMode, VimState};
 
 /// Dropdown state for autocomplete
 #[derive(Debug, Clone, PartialEq)]
@@ -81,7 +82,7 @@ pub struct PomodoroApp {
     survey_what_helped: String,
     survey_what_hurt: String,
     todo_enabled: bool,
-
+    vim_state: VimState,
 }
 
 impl PomodoroApp {
@@ -123,6 +124,7 @@ impl PomodoroApp {
             todo_list: TodoList::load(),
             todo_input: String::new(),
             todo_enabled: config.todo_enabled,
+            vim_state: VimState::default(),
 
             sessions_completed: 0,
             show_survey: false,
@@ -735,6 +737,18 @@ impl PomodoroApp {
                     self.notes_view = NotesView::Edit;
                     self.focus_notes_input = true;
                 }
+                if self.notes_enabled {
+                    ui.add_space(5.0);
+                    if self.config.vim_enabled {
+                        let mode_text = match self.vim_state.mode {
+                            VimMode::Normal => "NORMAL",
+                            VimMode::Insert => "INSERT",
+                            VimMode::Visual => "VISUAL",
+                        };
+                        ui.label(egui::RichText::new(mode_text).size(10.0).strong().color(egui::Color32::from_rgb(0x88, 0xcc, 0xff)));
+                    }
+                }
+
                 if ui.add(egui::Button::new(egui::RichText::new(self.t.preview_tab()).size(12.0).color(text_color)).fill(preview_color).rounding(4.0)).clicked() {
                     self.notes_view = NotesView::Preview;
                 }
@@ -747,6 +761,14 @@ impl PomodoroApp {
                         ctx.memory_mut(|mem| mem.request_focus(egui::Id::new("notes_text_input")));
                         self.focus_notes_input = false;
                     }
+
+                        if self.config.vim_enabled {
+                            let consumed = self.vim_state.handle_input(ctx, &mut self.notes_content, &mut self.notes_cursor_pos);
+                            if consumed && self.vim_state.mode == VimMode::Normal {
+                                ctx.input_mut(|i| i.events.clear());
+                            }
+                            self.requested_cursor_pos = Some(self.notes_cursor_pos);
+                        }
 
                     let output = ui.add(egui::TextEdit::multiline(&mut self.notes_content)
                         .id(egui::Id::new("notes_text_input"))
@@ -879,6 +901,10 @@ impl PomodoroApp {
                             ui.add_space(40.0);
                             if ui.add(egui::Button::new(egui::RichText::new(if self.config.survey_enabled { self.t.surveys_on() } else { self.t.surveys_off() }).color(text_color)).fill(button_color)).clicked() {
                                 self.config.survey_enabled = !self.config.survey_enabled; let _ = self.config.save();
+                            }
+                            ui.add_space(15.0);
+                            if ui.add(egui::Button::new(egui::RichText::new(if self.config.vim_enabled { "Vim Mode: ON" } else { "Vim Mode: OFF" }).color(text_color)).fill(button_color)).clicked() {
+                                self.config.vim_enabled = !self.config.vim_enabled; let _ = self.config.save();
                             }
                         });
                         ui.add_space(15.0);
