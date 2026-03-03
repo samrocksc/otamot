@@ -510,13 +510,15 @@ impl eframe::App for PomodoroApp {
         // Main UI Layout
         egui::CentralPanel::default().show(ctx, |ui| {
             if self.notes_enabled {
-                ui.horizontal(|ui| {
-                    let total_width = ui.available_width();
-                    let sidebar_width = 250.0;
-                    let notes_width = total_width - sidebar_width - 20.0; // Subtract padding
+                // Get the full available height before entering horizontal layout
+                let full_height = ui.available_height();
+                let total_width = ui.available_width();
+                let sidebar_width = 250.0;
+                let notes_width = total_width - sidebar_width - 20.0; // Subtract padding
 
+                ui.horizontal_top(|ui| {
                     // Side Pillar 1: Timer and basic controls
-                    ui.allocate_ui(egui::vec2(sidebar_width, ui.available_height()), |ui| {
+                    ui.allocate_ui(egui::vec2(sidebar_width, full_height), |ui| {
                         ui.vertical(|ui| {
                             egui::ScrollArea::vertical()
                                 .id_salt("sidebar_scroll")
@@ -530,7 +532,7 @@ impl eframe::App for PomodoroApp {
                     ui.separator();
 
                     // Side Pillar 2: Notes area and TODOs
-                    ui.allocate_ui(egui::vec2(notes_width, ui.available_height()), |ui| {
+                    ui.allocate_ui(egui::vec2(notes_width, full_height), |ui| {
                         ui.vertical(|ui| {
                             egui::ScrollArea::vertical()
                                 .id_salt("notes_area_scroll")
