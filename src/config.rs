@@ -50,6 +50,13 @@ pub struct Config {
 
     #[serde(default = "default_slash_commands")]
     pub slash_commands: HashMap<String, String>,
+
+    #[serde(default = "default_true")]
+    pub todo_enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_survey_enabled() -> bool {
@@ -90,6 +97,7 @@ impl Default for Config {
             survey_enabled: default_survey_enabled(),
             language: Language::default(),
             slash_commands: default_slash_commands(),
+            todo_enabled: true,
         }
     }
 }
@@ -187,6 +195,7 @@ mod tests {
             survey_enabled: true,
             language: Language::German,
             slash_commands: HashMap::new(),
+            todo_enabled: true,
         };
 
         let json = serde_json::to_string(&config).unwrap();
@@ -268,6 +277,7 @@ mod tests {
             survey_enabled: true,
             language: Language::English,
             slash_commands: HashMap::new(),
+            todo_enabled: true,
         };
 
         config.save_to_path(&config_path).unwrap();

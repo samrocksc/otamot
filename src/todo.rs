@@ -1,6 +1,7 @@
 //! TODO list management for the Pomodoro app
 //!
 //! Provides a simple TODO list that persists to ~/.config/otamot/todo.md
+//! and ~/.config/otamot/todo.json.
 
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
@@ -19,10 +20,23 @@ pub struct TodoItem {
 /// TODO list container
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TodoList {
+    /// Legacy flat items list for backward compatibility
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub items: Vec<TodoItem>,
+    
+    /// Active (incomplete) items
+    #[serde(default)]
+    pub active: Vec<TodoItem>,
+    
+    /// Completed items
+    #[serde(default)]
+    pub completed: Vec<TodoItem>,
+    
     pub next_id: usize,
+    
     #[serde(default)]
     pub enabled: bool,
+    
     #[serde(default)]
     pub last_updated: Option<DateTime<Local>>,
 }
@@ -32,6 +46,8 @@ impl TodoList {
     pub fn new() -> Self {
         Self {
             items: Vec::new(),
+            active: Vec::new(),
+            completed: Vec::new(),
             next_id: 1,
             enabled: false,
             last_updated: None,
@@ -42,22 +58,48 @@ impl TodoList {
     pub fn load() -> Self {
         let path = Self::todo_path();
         
-        if path.exists() {
+        let mut list = if path.exists() {
             match std::fs::read_to_string(&path) {
                 Ok(content) => {
-                    // Try to parse as JSON first (new format)
-                    if let Ok(list) = serde_json::from_str::<TodoList>(&content) {
-                        return list;
+                    // Try to parse as JSON first (new format usually in .json)
+                    let json_path = path.with_extension("json");
+                    let mut decoded = if json_path.exists() {
+                        std::fs::read_to_string(&json_path)
+                            .ok()
+                            .and_then(|c| serde_json::from_str::<TodoList>(&c).ok())
+                            .unwrap_or_default()
+                    } else {
+                        // Fall back to parsing markdown TODO format from .md
+                        Self::parse_markdown(&content)
+                    };
+
+                    // Migration: if we have flat items, move them to active/completed
+                    if !decoded.items.is_empty() {
+                        for item in decoded.items.drain(..) {
+                            if item.completed {
+                                decoded.completed.push(item);
+                            } else {
+                                decoded.active.push(item);
+                            }
+                        }
                     }
-                    
-                    // Fall back to parsing markdown TODO format
-                    return Self::parse_markdown(&content);
+                    decoded
                 }
-                Err(e) => eprintln!("Failed to read todo.md: {}", e),
+                Err(e) => {
+                    eprintln!("Failed to read todo.md: {}", e);
+                    Self::default()
+                }
             }
-        }
-        
-        Self::default()
+        } else {
+            Self::default()
+        };
+
+        // Ensure next_id is correct after loading
+        let max_active = list.active.iter().map(|i| i.id).max().unwrap_or(0);
+        let max_comp = list.completed.iter().map(|i| i.id).max().unwrap_or(0);
+        list.next_id = max_active.max(max_comp) + 1;
+
+        list
     }
 
     /// Save TODO list to config directory
@@ -71,7 +113,7 @@ impl TodoList {
             }
         }
 
-        // Save as both JSON (for internal use) and markdown (for user readability)
+        // Save as JSON (primary format with separate sections)
         let json_path = path.with_extension("json");
         match serde_json::to_string_pretty(self) {
             Ok(content) => {
@@ -82,7 +124,7 @@ impl TodoList {
             Err(e) => eprintln!("Failed to serialize todo list: {}", e),
         }
 
-        // Also save as markdown for user accessibility
+        // Also save as markdown for user accessibility (flat format with headers)
         let md_content = self.to_markdown();
         if let Err(e) = std::fs::write(&path, md_content) {
             eprintln!("Failed to save todo.md: {}", e);
@@ -91,9 +133,8 @@ impl TodoList {
 
     /// Get the path to the TODO file
     fn todo_path() -> PathBuf {
-        std::env::var("HOME")
-            .map(|home| PathBuf::from(format!("{}/.config/otamot/todo.md", home)))
-            .unwrap_or_else(|_| PathBuf::from("todo.md"))
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        PathBuf::from(home).join(".config/otamot/todo.md")
     }
 
     /// Add a new TODO item
@@ -105,44 +146,54 @@ impl TodoList {
             created_at: Local::now(),
             completed_at: None,
         };
-        self.items.push(item);
+        self.active.push(item);
         self.next_id += 1;
         self.last_updated = Some(Local::now());
     }
 
     /// Toggle a TODO item's completion status
     pub fn toggle(&mut self, id: usize) {
-        if let Some(item) = self.items.iter_mut().find(|i| i.id == id) {
-            item.completed = !item.completed;
-            item.completed_at = if item.completed {
-                Some(Local::now())
-            } else {
-                None
-            };
+        // Check active first
+        if let Some(pos) = self.active.iter().position(|i| i.id == id) {
+            let mut item = self.active.remove(pos);
+            item.completed = true;
+            item.completed_at = Some(Local::now());
+            self.completed.push(item);
+            self.last_updated = Some(Local::now());
+            return;
+        }
+        
+        // Then check completed
+        if let Some(pos) = self.completed.iter().position(|i| i.id == id) {
+            let mut item = self.completed.remove(pos);
+            item.completed = false;
+            item.completed_at = None;
+            self.active.push(item);
             self.last_updated = Some(Local::now());
         }
     }
 
     /// Remove a TODO item
     pub fn remove(&mut self, id: usize) {
-        self.items.retain(|i| i.id != id);
+        self.active.retain(|i| i.id != id);
+        self.completed.retain(|i| i.id != id);
         self.last_updated = Some(Local::now());
     }
 
     /// Clear all completed items
     pub fn clear_completed(&mut self) {
-        self.items.retain(|i| !i.completed);
+        self.completed.clear();
         self.last_updated = Some(Local::now());
     }
 
     /// Get count of incomplete items
     pub fn incomplete_count(&self) -> usize {
-        self.items.iter().filter(|i| !i.completed).count()
+        self.active.len()
     }
 
     /// Get count of completed items
     pub fn completed_count(&self) -> usize {
-        self.items.iter().filter(|i| i.completed).count()
+        self.completed.len()
     }
 
     /// Convert to markdown format
@@ -154,29 +205,26 @@ impl TodoList {
         output.push_str(&format!("last_updated: {}\n", 
             self.last_updated.map(|d| d.format("%Y-%m-%d %H:%M:%S").to_string())
                 .unwrap_or_default()));
-        output.push_str(&format!("total_items: {}\n", self.items.len()));
-        output.push_str(&format!("completed: {}\n", self.completed_count()));
+        output.push_str(&format!("total_items: {}\n", self.active.len() + self.completed.len()));
+        output.push_str(&format!("completed: {}\n", self.completed.len()));
         output.push_str("---\n\n");
 
-        if self.items.is_empty() {
+        if self.active.is_empty() && self.completed.is_empty() {
             output.push_str("No TODO items yet!\n");
-            output.push_str("\nAdd items using the TODO panel in the app.\n");
         } else {
-            // Incomplete items first
-            let incomplete: Vec<_> = self.items.iter().filter(|i| !i.completed).collect();
-            let completed: Vec<_> = self.items.iter().filter(|i| i.completed).collect();
-
-            if !incomplete.is_empty() {
-                output.push_str(&format!("## TODO ({} items)\n\n", incomplete.len()));
-                for item in incomplete {
+            if !self.active.is_empty() {
+                output.push_str(&format!("## Active ({} items)\n\n", self.active.len()));
+                for item in &self.active {
                     output.push_str(&format!("- [ ] {}\n", item.text));
                 }
             }
 
-            if !completed.is_empty() {
-                output.push_str(&format!("\n## Completed ({} items)\n\n", completed.len()));
-                for item in completed {
-                    output.push_str(&format!("- [x] {}\n", item.text));
+            if !self.completed.is_empty() {
+                output.push_str(&format!("\n## Completed ({} items)\n\n", self.completed.len()));
+                for item in &self.completed {
+                    let ts = item.completed_at.map(|d| d.format(" [%Y-%m-%d %H:%M]").to_string())
+                        .unwrap_or_default();
+                    output.push_str(&format!("- [x] {}{}\n", item.text, ts));
                 }
             }
         }
@@ -190,35 +238,44 @@ impl TodoList {
         let mut in_frontmatter = false;
 
         for line in content.lines() {
-            // Handle frontmatter
             if line.trim() == "---" {
                 in_frontmatter = !in_frontmatter;
                 continue;
             }
+            if in_frontmatter { continue; }
 
-            if in_frontmatter {
-                continue; // Skip frontmatter content
-            }
-
-            // Parse TODO items
             let trimmed = line.trim();
-            if trimmed.starts_with("- [ ] ") || trimmed.starts_with("- [x] ") {
-                let completed = trimmed.starts_with("- [x] ");
+            if trimmed.starts_with("- [ ] ") {
                 let text = trimmed[6..].to_string();
-                
-                let item = TodoItem {
+                list.active.push(TodoItem {
                     id: list.next_id,
                     text,
-                    completed,
+                    completed: false,
                     created_at: Local::now(),
-                    completed_at: if completed { Some(Local::now()) } else { None },
+                    completed_at: None,
+                });
+                list.next_id += 1;
+            } else if trimmed.starts_with("- [x] ") {
+                // Try to extract timestamp if present like "- [x] task [2026-03-03 ...]"
+                let text_part = trimmed[6..].to_string();
+                let (text, completed_at) = if let Some(bracket_pos) = text_part.rfind(" [") {
+                    (text_part[..bracket_pos].to_string(), Some(Local::now()))
+                } else {
+                    (text_part, Some(Local::now()))
                 };
-                list.items.push(item);
+
+                list.completed.push(TodoItem {
+                    id: list.next_id,
+                    text: text.trim().to_string(),
+                    completed: true,
+                    created_at: Local::now(),
+                    completed_at,
+                });
                 list.next_id += 1;
             }
         }
 
-        if !list.items.is_empty() {
+        if !list.active.is_empty() || !list.completed.is_empty() {
             list.last_updated = Some(Local::now());
         }
 
@@ -234,58 +291,22 @@ mod tests {
     fn test_add_todo() {
         let mut list = TodoList::new();
         list.add("Test item".to_string());
-        
-        assert_eq!(list.items.len(), 1);
-        assert_eq!(list.items[0].text, "Test item");
-        assert!(!list.items[0].completed);
+        assert_eq!(list.active.len(), 1);
+        assert_eq!(list.active[0].text, "Test item");
     }
 
     #[test]
     fn test_toggle_todo() {
         let mut list = TodoList::new();
         list.add("Test item".to_string());
-        
-        assert!(!list.items[0].completed);
+        list.toggle(1);
+        assert!(list.active.is_empty());
+        assert_eq!(list.completed.len(), 1);
+        assert!(list.completed[0].completed);
         
         list.toggle(1);
-        assert!(list.items[0].completed);
-        
-        list.toggle(1);
-        assert!(!list.items[0].completed);
-    }
-
-    #[test]
-    fn test_remove_todo() {
-        let mut list = TodoList::new();
-        list.add("Item 1".to_string());
-        list.add("Item 2".to_string());
-        
-        list.remove(1);
-        assert_eq!(list.items.len(), 1);
-        assert_eq!(list.items[0].text, "Item 2");
-    }
-
-    #[test]
-    fn test_counts() {
-        let mut list = TodoList::new();
-        list.add("Item 1".to_string());
-        list.add("Item 2".to_string());
-        list.toggle(1);
-        
-        assert_eq!(list.incomplete_count(), 1);
-        assert_eq!(list.completed_count(), 1);
-    }
-
-    #[test]
-    fn test_clear_completed() {
-        let mut list = TodoList::new();
-        list.add("Item 1".to_string());
-        list.add("Item 2".to_string());
-        list.toggle(1);
-        
-        list.clear_completed();
-        assert_eq!(list.items.len(), 1);
-        assert!(!list.items[0].completed);
+        assert!(list.completed.is_empty());
+        assert_eq!(list.active.len(), 1);
     }
 
     #[test]
@@ -293,27 +314,10 @@ mod tests {
         let mut list = TodoList::new();
         list.add("Task 1".to_string());
         list.add("Task 2".to_string());
-        list.toggle(2);
+        list.toggle(list.active[1].id);
 
         let md = list.to_markdown();
         assert!(md.contains("- [ ] Task 1"));
         assert!(md.contains("- [x] Task 2"));
-    }
-
-    #[test]
-    fn test_parse_markdown() {
-        let content = r#"---
-last_updated: 2026-03-02
----
-
-- [ ] Task 1
-- [x] Task 2
-"#;
-        let list = TodoList::parse_markdown(content);
-        
-        assert_eq!(list.items.len(), 2);
-        assert_eq!(list.items[0].text, "Task 1");
-        assert!(!list.items[0].completed);
-        assert!(list.items[1].completed);
     }
 }

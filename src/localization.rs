@@ -29,6 +29,10 @@ impl T {
     pub fn work_duration(&self) -> String { self.get("work_duration") }
     pub fn break_duration(&self) -> String { self.get("break_duration") }
     pub fn notes_directory(&self) -> String { self.get("notes_directory") }
+    pub fn enable_todo(&self) -> String { self.get("enable_todo") }
+    pub fn todo_on(&self) -> String { self.get("todo_on") }
+    pub fn todo_off(&self) -> String { self.get("todo_off") }
+
     pub fn enable_notes(&self) -> String { self.get("enable_notes") }
     pub fn enable_survey(&self) -> String { self.get("enable_survey") }
     pub fn language_setting(&self) -> String { self.get("language_setting") }

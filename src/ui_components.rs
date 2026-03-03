@@ -169,28 +169,37 @@ pub fn render_todo_panel(
             let mut to_remove = None;
             let mut to_toggle = None;
 
-            for item in todo_list.items.iter_mut() {
+            // Render Active items
+            for item in todo_list.active.iter_mut() {
                 ui.horizontal(|ui| {
-                    let checkbox = ui.checkbox(&mut item.completed, "");
-                    if checkbox.clicked() {
+                    if ui.checkbox(&mut item.completed, "").clicked() {
                         to_toggle = Some(item.id);
                     }
 
-                    let cur_text_color = if item.completed {
-                        egui::Color32::from_rgb(0x88, 0x88, 0x88)
-                    } else {
-                        text_color
-                    };
+                    ui.label(egui::RichText::new(&item.text).color(text_color));
 
-                    let text = if item.completed {
+                    if ui
+                        .add(egui::Button::new("❌").fill(button_color).small())
+                        .clicked()
+                    {
+                        to_remove = Some(item.id);
+                    }
+                });
+            }
+
+            // Render Completed items
+            for item in todo_list.completed.iter_mut() {
+                ui.horizontal(|ui| {
+                    if ui.checkbox(&mut item.completed, "").clicked() {
+                        to_toggle = Some(item.id);
+                    }
+
+                    let cur_text_color = egui::Color32::from_rgb(0x88, 0x88, 0x88);
+                    ui.label(
                         egui::RichText::new(&item.text)
                             .strikethrough()
-                            .color(cur_text_color)
-                    } else {
-                        egui::RichText::new(&item.text).color(cur_text_color)
-                    };
-
-                    ui.label(text);
+                            .color(cur_text_color),
+                    );
 
                     if ui
                         .add(egui::Button::new("❌").fill(button_color).small())

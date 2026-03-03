@@ -79,6 +79,8 @@ pub struct PomodoroApp {
     survey_focus_rating: u32,
     survey_what_helped: String,
     survey_what_hurt: String,
+    todo_enabled: bool,
+
 }
 
 impl PomodoroApp {
@@ -118,6 +120,8 @@ impl PomodoroApp {
             show_help: false,
             todo_list: TodoList::load(),
             todo_input: String::new(),
+            todo_enabled: config.todo_enabled,
+
             sessions_completed: 0,
             show_survey: false,
             show_survey_summary: false,
@@ -305,6 +309,7 @@ impl PomodoroApp {
         self.config.break_duration = self.temp_break_duration;
         self.config.notes_directory = self.temp_notes_directory.clone();
         self.config.language = self.temp_language;
+        self.config.todo_enabled = self.todo_enabled;
         self.t = T::new(self.config.language);
         self.config.slash_commands = self.command_manager.get_commands();
 
@@ -607,7 +612,10 @@ impl PomodoroApp {
 
             ui.add_space(10.0);
             ui.label(egui::RichText::new(self.t.sessions_completed_label(self.sessions_completed)).size(12.0).color(egui::Color32::from_rgb(0x88, 0x88, 0x88)));
-            ui_components::render_todo_panel(ui, &mut self.todo_list, &mut self.todo_input, &self.t, text_color, button_color);
+            
+            if self.todo_enabled {
+                ui_components::render_todo_panel(ui, &mut self.todo_list, &mut self.todo_input, &self.t, text_color, button_color);
+            }
         });
     }
 
@@ -695,7 +703,10 @@ impl PomodoroApp {
             ui.add_space(10.0);
             ui.label(egui::RichText::new(self.t.sessions_completed_label(self.sessions_completed)).size(12.0).color(egui::Color32::from_rgb(0x88, 0x88, 0x88)));
             if ui.add(egui::Button::new(egui::RichText::new(self.t.help_button()).color(text_color)).fill(button_color).rounding(8.0)).clicked() { self.show_help = true; }
-            ui_components::render_todo_panel(ui, &mut self.todo_list, &mut self.todo_input, &self.t, text_color, button_color);
+            
+            if self.todo_enabled {
+                ui_components::render_todo_panel(ui, &mut self.todo_list, &mut self.todo_input, &self.t, text_color, button_color);
+            }
         });
     }
 
@@ -761,6 +772,13 @@ impl PomodoroApp {
                         ui.selectable_value(&mut self.temp_language, Language::English, self.t.lang_en());
                         ui.selectable_value(&mut self.temp_language, Language::German, self.t.lang_de());
                     });
+                });
+                ui.add_space(20.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(40.0);
+                    if ui.add(egui::Button::new(egui::RichText::new(if self.todo_enabled { self.t.todo_on() } else { self.t.todo_off() }).color(text_color)).fill(button_color)).clicked() {
+                        self.todo_enabled = !self.todo_enabled;
+                    }
                 });
                 ui.add_space(40.0);
                 ui.horizontal(|ui| {
