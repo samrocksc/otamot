@@ -353,6 +353,73 @@ impl eframe::App for PomodoroApp {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
 
+        // Handle Tab key early - before UI renders - to prevent focus escape and handle indentation
+        if self.notes_enabled && self.notes_view == NotesView::Edit {
+            let is_focused = ctx.memory(|mem| mem.has_focus(egui::Id::new("notes_text_input")));
+            let tab_pressed = ctx.input(|i| i.key_pressed(egui::Key::Tab));
+            let shift = ctx.input(|i| i.modifiers.shift);
+
+            if tab_pressed && is_focused {
+                // Dropdown navigation
+                if self.dropdown_visible && !self.dropdown_items.is_empty() {
+                    if shift {
+                        self.dropdown_selected = if self.dropdown_selected == 0 { self.dropdown_items.len() - 1 } else { self.dropdown_selected - 1 };
+                    } else {
+                        self.dropdown_selected = (self.dropdown_selected + 1) % self.dropdown_items.len();
+                    }
+                    ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab));
+                    ctx.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab));
+                } else if !self.dropdown_visible {
+                    // Consume Tab to prevent focus escape
+                    ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab));
+                    ctx.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab));
+
+                    // Get byte position from character position
+                    let byte_pos = self.notes_content.char_indices()
+                        .nth(self.notes_cursor_pos)
+                        .map(|(i, _)| i)
+                        .unwrap_or(self.notes_content.len());
+
+                    // Find the start of the current line
+                    let line_start = self.notes_content[..byte_pos].rfind('\n')
+                        .map(|i| i + 1)
+                        .unwrap_or(0);
+
+                    // Get the full line content
+                    let line_end = self.notes_content[byte_pos..].find('\n')
+                        .map(|i| byte_pos + i)
+                        .unwrap_or(self.notes_content.len());
+                    let full_line = &self.notes_content[line_start..line_end];
+
+                    // Check if this line is a list item (with optional leading spaces)
+                    let trimmed = full_line.trim_start();
+                    let is_list_item = trimmed.starts_with("- ") || trimmed.starts_with("* ") ||
+                        (trimmed.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) &&
+                         trimmed.find(". ").is_some());
+
+                    if shift {
+                        // Handle Outdent (Shift+Tab)
+                        let line_content = &self.notes_content[line_start..];
+                        if line_content.starts_with("  ") {
+                            self.notes_content = format!("{}{}", &self.notes_content[..line_start], &self.notes_content[line_start + 2..]);
+                            self.requested_cursor_pos = Some(self.notes_cursor_pos.saturating_sub(2));
+                        } else if line_content.starts_with('\t') {
+                            self.notes_content = format!("{}{}", &self.notes_content[..line_start], &self.notes_content[line_start + 1..]);
+                            self.requested_cursor_pos = Some(self.notes_cursor_pos.saturating_sub(1));
+                        }
+                    } else if is_list_item {
+                        // Handle Indent (Tab) on list item - insert spaces at line start
+                        self.notes_content.insert_str(line_start, "  ");
+                        self.requested_cursor_pos = Some(self.notes_cursor_pos + 2);
+                    } else {
+                        // Handle Indent (Tab) - insert 2 spaces at cursor position
+                        self.notes_content.insert_str(byte_pos, "  ");
+                        self.requested_cursor_pos = Some(self.notes_cursor_pos + 2);
+                    }
+                }
+            }
+        }
+
         // Global hotkey handling
         if ctx.input(|i| i.key_pressed(egui::Key::P) && i.modifiers.ctrl) && self.notes_enabled {
             if self.notes_view == NotesView::Edit {
@@ -378,74 +445,6 @@ impl eframe::App for PomodoroApp {
 
         if ctx.input(|i| i.key_pressed(egui::Key::Slash) && i.modifiers.ctrl && i.modifiers.shift) {
             self.show_help = !self.show_help;
-        }
-
-        // Handle Tab key to indent list items or navigate dropdown
-        if ctx.input(|i| i.key_pressed(egui::Key::Tab))
-            && self.notes_enabled
-            && self.notes_view == NotesView::Edit
-        {
-            let is_focused = ctx.memory(|mem| mem.has_focus(egui::Id::new("notes_text_input")));
-            let shift = ctx.input(|i| i.modifiers.shift);
-
-            if self.dropdown_visible {
-                if !self.dropdown_items.is_empty() {
-                    if shift {
-                        self.dropdown_selected = if self.dropdown_selected == 0 { self.dropdown_items.len() - 1 } else { self.dropdown_selected - 1 };
-                    } else {
-                        self.dropdown_selected = (self.dropdown_selected + 1) % self.dropdown_items.len();
-                    }
-                    ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab));
-                    ctx.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab));
-                }
-            } else if is_focused {
-                // Prevent focus escapement
-                ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab));
-                ctx.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab));
-
-                // Get byte position from character position
-                let byte_pos = self.notes_content.char_indices()
-                    .nth(self.notes_cursor_pos)
-                    .map(|(i, _)| i)
-                    .unwrap_or(self.notes_content.len());
-
-                // Find the start of the current line
-                let line_start = self.notes_content[..byte_pos].rfind('\n')
-                    .map(|i| i + 1)
-                    .unwrap_or(0);
-
-                // Get the full line content (to end of line or cursor position for checking)
-                let line_end = self.notes_content[byte_pos..].find('\n')
-                    .map(|i| byte_pos + i)
-                    .unwrap_or(self.notes_content.len());
-                let full_line = &self.notes_content[line_start..line_end];
-
-                // Check if this line is a list item (with optional leading spaces)
-                let trimmed = full_line.trim_start();
-                let is_list_item = trimmed.starts_with("- ") || trimmed.starts_with("* ") ||
-                    trimmed.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) &&
-                    trimmed.find(". ").map(|i| trimmed.chars().take_while(|c| c.is_ascii_digit()).count() + 2 == i).unwrap_or(false);
-
-                if shift {
-                    // Handle Outdent (Shift+Tab)
-                    let line_content = &self.notes_content[line_start..];
-                    if line_content.starts_with("  ") {
-                        self.notes_content = format!("{}{}", &self.notes_content[..line_start], &self.notes_content[line_start + 2..]);
-                        self.requested_cursor_pos = Some(self.notes_cursor_pos.saturating_sub(2));
-                    } else if line_content.starts_with('\t') {
-                        self.notes_content = format!("{}{}", &self.notes_content[..line_start], &self.notes_content[line_start + 1..]);
-                        self.requested_cursor_pos = Some(self.notes_cursor_pos.saturating_sub(1));
-                    }
-                } else if is_list_item {
-                    // Handle Indent (Tab) on list item - insert spaces at line start
-                    self.notes_content.insert_str(line_start, "  ");
-                    self.requested_cursor_pos = Some(self.notes_cursor_pos + 2);
-                } else {
-                    // Handle Indent (Tab) - insert 2 spaces at cursor position
-                    self.notes_content.insert_str(byte_pos, "  ");
-                    self.requested_cursor_pos = Some(self.notes_cursor_pos + 2);
-                }
-            }
         }
 
         // Handle Enter key to continue list items
