@@ -1,0 +1,76 @@
+diff --git a/src/app.rs b/src/app.rs
+index 6a32b0f..b23bd7c 100644
+--- a/src/app.rs
++++ b/src/app.rs
+@@ -45,6 +45,7 @@ pub struct PomodoroApp {
+     notes_content: String,
+     notes_view: NotesView,
+     focus_notes_input: bool, // Flag to request focus on notes text input
++    requested_cursor_pos: Option<usize>, // Requested cursor position for notes input
+ 
+     // Slash commands and hashtags
+     command_manager: CommandManager,
+@@ -98,6 +99,7 @@ impl PomodoroApp {
+             notes_content: String::new(),
+             notes_view: NotesView::Edit,
+             focus_notes_input: false,
++            requested_cursor_pos: None,
+             command_manager: CommandManager::load(),
+             hashtag_library: HashtagLibrary::load(),
+             dropdown_visible: false,
+@@ -628,6 +630,7 @@ impl eframe::App for PomodoroApp {
+                                 self.dropdown_start_pos,
+                                 &replacement,
+                             );
++                            self.requested_cursor_pos = Some(self.dropdown_start_pos + replacement.chars().count());
+                         }
+                     }
+                     DropdownType::Hashtag => {
+@@ -638,6 +641,7 @@ impl eframe::App for PomodoroApp {
+                             self.dropdown_start_pos,
+                             &selected_item,
+                         );
++                        self.requested_cursor_pos = Some(self.dropdown_start_pos + selected_item.chars().count() + 1); // +1 for the #
+                         // Add to library
+                         self.hashtag_library.add(&selected_item);
+                     }
+@@ -921,13 +925,22 @@ impl eframe::App for PomodoroApp {
+                                 }
+ 
+                                 egui::ScrollArea::vertical().show(ui, |ui| {
+-                                    ui.add(
++                                    let output = ui.add(
+                                         egui::TextEdit::multiline(&mut self.notes_content)
+                                             .id(egui::Id::new("notes_text_input"))
+                                             .desired_width(f32::INFINITY) // Use all available width
+                                             .desired_rows(15)
+                                             .font(egui::TextStyle::Monospace),
+                                     );
++
++                                    // Handle cursor position request
++                                    if let Some(pos) = self.requested_cursor_pos.take() {
++                                        if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), output.id) {
++                                            let ccursor = egui::text::CCursor::new(pos);
++                                            state.cursor.set_char_range(Some(egui::text::CCursorRange::one(ccursor)));
++                                            state.store(ui.ctx(), output.id);
++                                        }
++                                    }
+                                 });
+ 
+                                 // Show autocomplete dropdown as a floating panel above text area
+@@ -984,6 +997,7 @@ impl eframe::App for PomodoroApp {
+                                                                                 self.dropdown_start_pos,
+                                                                                 &replacement,
+                                                                             );
++                                                                            self.requested_cursor_pos = Some(self.dropdown_start_pos + replacement.chars().count());
+                                                                         }
+                                                                     }
+                                                                     DropdownType::Hashtag => {
+@@ -994,6 +1008,7 @@ impl eframe::App for PomodoroApp {
+                                                                             self.dropdown_start_pos,
+                                                                             &selected_item,
+                                                                         );
++                                                                        self.requested_cursor_pos = Some(self.dropdown_start_pos + selected_item.chars().count() + 1);
+                                                                         self.hashtag_library.add(&selected_item);
+                                                                     }
+                                                                 }

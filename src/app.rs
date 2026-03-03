@@ -5,8 +5,9 @@ use std::time::{Duration, Instant};
 // Since app.rs is included from main.rs, we use otamot:: for library imports
 use otamot::bell::Bell;
 use otamot::commands::CommandManager;
-use otamot::config::{Config, NotesView};
+use otamot::config::{Config, Language, NotesView};
 use otamot::hashtags::HashtagLibrary;
+use otamot::localization::T;
 use otamot::markdown::{format_markdown, insert_date_bullet};
 use otamot::survey::SurveyData;
 use otamot::timer::TimerMode;
@@ -39,12 +40,17 @@ pub struct PomodoroApp {
     temp_work_duration: u32,
     temp_break_duration: u32,
     temp_notes_directory: String,
+    temp_language: Language,
+
+    // Localization helper
+    t: T,
 
     // Notes state
     notes_enabled: bool,
     notes_content: String,
     notes_view: NotesView,
     focus_notes_input: bool, // Flag to request focus on notes text input
+    requested_cursor_pos: Option<usize>, // Requested cursor position for notes input
 
     // Slash commands and hashtags
     command_manager: CommandManager,
@@ -94,10 +100,13 @@ impl PomodoroApp {
             temp_work_duration: config.work_duration,
             temp_break_duration: config.break_duration,
             temp_notes_directory: config.notes_directory.clone(),
+            temp_language: config.language,
+            t: T::new(config.language),
             notes_enabled: config.notes_enabled,
             notes_content: String::new(),
             notes_view: NotesView::Edit,
             focus_notes_input: false,
+            requested_cursor_pos: None,
             command_manager: CommandManager::load(),
             hashtag_library: HashtagLibrary::load(),
             dropdown_visible: false,
@@ -332,6 +341,8 @@ tags:
         self.config.work_duration = self.temp_work_duration;
         self.config.break_duration = self.temp_break_duration;
         self.config.notes_directory = self.temp_notes_directory.clone();
+        self.config.language = self.temp_language;
+        self.t = T::new(self.config.language);
 
         if let Err(e) = self.config.save() {
             eprintln!("Failed to save config: {}", e);
@@ -628,6 +639,7 @@ impl eframe::App for PomodoroApp {
                                 self.dropdown_start_pos,
                                 &replacement,
                             );
+                            self.requested_cursor_pos = Some(self.dropdown_start_pos + replacement.chars().count());
                         }
                     }
                     DropdownType::Hashtag => {
@@ -638,6 +650,7 @@ impl eframe::App for PomodoroApp {
                             self.dropdown_start_pos,
                             &selected_item,
                         );
+                        self.requested_cursor_pos = Some(self.dropdown_start_pos + selected_item.chars().count() + 1); // +1 for the #
                         // Add to library
                         self.hashtag_library.add(&selected_item);
                     }
@@ -649,11 +662,21 @@ impl eframe::App for PomodoroApp {
                 self.focus_notes_input = true;
             }
 
-            // Handle Escape to close dropdown
-            if self.dropdown_visible && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-                self.dropdown_visible = false;
-                self.dropdown_items.clear();
-                self.dropdown_selected = 0;
+            // Handle Escape to close dropdown or modal/full-screen UI
+            if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                if self.dropdown_visible {
+                    self.dropdown_visible = false;
+                    self.dropdown_items.clear();
+                    self.dropdown_selected = 0;
+                } else if self.show_settings {
+                    self.show_settings = false;
+                } else if self.show_help {
+                    self.show_help = false;
+                } else if self.show_survey {
+                    self.show_survey = false;
+                } else if self.show_survey_summary {
+                    self.show_survey_summary = false;
+                }
             }
 
             // Handle arrow keys for dropdown navigation
@@ -721,8 +744,8 @@ impl eframe::App for PomodoroApp {
 
                         // Mode label
                         let (mode_label, mode_color) = match self.mode {
-                            TimerMode::Work => ("WORK", work_color),
-                            TimerMode::Break => ("BREAK", break_color),
+                            TimerMode::Work => (self.t.timer_work(), work_color),
+                            TimerMode::Break => (self.t.timer_break(), break_color),
                         };
                         ui.label(egui::RichText::new(mode_label).size(20.0).color(mode_color));
 
@@ -732,8 +755,8 @@ impl eframe::App for PomodoroApp {
                         ui.horizontal(|ui| {
                             ui.add_space(10.0);
 
-                            let button_label = if self.is_running { "PAUSE" } else { "START" };
-                            if Self::rounded_button(ui, button_label, text_color, button_color)
+                            let button_label = if self.is_running { self.t.pause_button() } else { self.t.start_button() };
+                            if Self::rounded_button(ui, &button_label, text_color, button_color)
                                 .clicked()
                             {
                                 self.toggle_timer();
@@ -741,14 +764,14 @@ impl eframe::App for PomodoroApp {
 
                             ui.add_space(8.0);
 
-                            if Self::rounded_button(ui, "RESET", text_color, button_color).clicked()
+                            if Self::rounded_button(ui, &self.t.reset_button(), text_color, button_color).clicked()
                             {
                                 self.reset_timer();
                             }
 
                             ui.add_space(8.0);
 
-                            if Self::rounded_button(ui, "SKIP", text_color, button_color).clicked()
+                            if Self::rounded_button(ui, &self.t.button_skip().to_uppercase(), text_color, button_color).clicked()
                             {
                                 self.skip_to_break();
                             }
@@ -762,7 +785,7 @@ impl eframe::App for PomodoroApp {
                         if ui
                             .add(
                                 egui::Button::new(
-                                    egui::RichText::new("⚙ Settings").color(text_color),
+                                    egui::RichText::new(self.t.settings_btn()).color(text_color),
                                 )
                                 .fill(button_color)
                                 .rounding(8.0),
@@ -779,7 +802,7 @@ impl eframe::App for PomodoroApp {
                         if ui
                             .add(
                                 egui::Button::new(
-                                    egui::RichText::new("📊 Survey Summary").color(text_color),
+                                    egui::RichText::new(self.t.survey_summary_title()).color(text_color),
                                 )
                                 .fill(button_color)
                                 .rounding(8.0),
@@ -791,16 +814,13 @@ impl eframe::App for PomodoroApp {
 
                         // Notes toggle (in timer column)
                         ui.add_space(15.0);
-                        let toggle_label = if self.notes_enabled {
-                            "📝 Notes: ON"
-                        } else {
-                            "📝 Notes: OFF"
-                        };
                         if ui
                             .add(
-                                egui::Button::new(
-                                    egui::RichText::new(toggle_label).color(text_color),
-                                )
+                                egui::Button::new(egui::RichText::new(if self.notes_enabled {
+                                    self.t.notes_on()
+                                } else {
+                                    self.t.notes_off()
+                                }).color(text_color))
                                 .fill(button_color)
                                 .rounding(8.0),
                             )
@@ -816,28 +836,23 @@ impl eframe::App for PomodoroApp {
                             ui.add_space(10.0);
                             if ui
                                 .add(
-                                    egui::Button::new(
-                                        egui::RichText::new("💾 Save Notes").color(text_color),
-                                    )
+                                    egui::Button::new(egui::RichText::new(self.t.save_notes_btn()).color(text_color))
                                     .fill(egui::Color32::from_rgb(0x27, 0xae, 0x60))
                                     .rounding(8.0),
                                 )
                                 .clicked()
                             {
-                                self.session_end = Some(Local::now());
                                 self.save_notes();
                             }
                         }
 
-                        // Help button
+                        // Help toggle
                         ui.add_space(10.0);
                         if ui
                             .add(
-                                egui::Button::new(
-                                    egui::RichText::new("❓ Help").color(text_color),
-                                )
-                                .fill(button_color)
-                                .rounding(8.0),
+                                egui::Button::new(egui::RichText::new(self.t.help_button()).color(text_color))
+                                    .fill(button_color)
+                                    .rounding(8.0),
                             )
                             .clicked()
                         {
@@ -847,7 +862,7 @@ impl eframe::App for PomodoroApp {
                         // Session counter
                         ui.add_space(10.0);
                         ui.label(
-                            egui::RichText::new(format!("Sessions: {}", self.sessions_completed))
+                            egui::RichText::new(self.t.sessions_completed_label(self.sessions_completed))
                                 .size(12.0)
                                 .color(egui::Color32::from_rgb(0x88, 0x88, 0x88)),
                         );
@@ -855,7 +870,7 @@ impl eframe::App for PomodoroApp {
                         // Hotkey hint
                         ui.add_space(5.0);
                         ui.label(
-                            egui::RichText::new("Ctrl+P: Toggle Preview")
+                            egui::RichText::new(self.t.toggle_preview_hover())
                                 .size(10.0)
                                 .color(egui::Color32::from_rgb(0x66, 0x66, 0x66)),
                         );
@@ -881,26 +896,26 @@ impl eframe::App for PomodoroApp {
                             if ui
                                 .add(
                                     egui::Button::new(
-                                        egui::RichText::new("Edit").size(12.0).color(text_color),
+                                        egui::RichText::new(self.t.edit_tab()).size(12.0).color(text_color),
                                     )
                                     .fill(edit_color)
                                     .rounding(4.0)
                                     .min_size(egui::vec2(50.0, 20.0)),
-                                )
-                                .clicked()
-                            {
-                                self.notes_view = NotesView::Edit;
-                                self.focus_notes_input = true; // Request focus when clicking Edit tab
-                            }
+                            )
+                            .clicked()
+                        {
+                            self.notes_view = NotesView::Edit;
+                            self.focus_notes_input = true; // Request focus when clicking Edit tab
+                        }
 
-                            if ui
-                                .add(
-                                    egui::Button::new(
-                                        egui::RichText::new("Preview").size(12.0).color(text_color),
-                                    )
-                                    .fill(preview_color)
-                                    .rounding(4.0)
-                                    .min_size(egui::vec2(60.0, 20.0)),
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    egui::RichText::new(self.t.preview_tab()).size(12.0).color(text_color),
+                                )
+                                .fill(preview_color)
+                                .rounding(4.0)
+                                .min_size(egui::vec2(60.0, 20.0)),
                                 )
                                 .clicked()
                             {
@@ -921,13 +936,22 @@ impl eframe::App for PomodoroApp {
                                 }
 
                                 egui::ScrollArea::vertical().show(ui, |ui| {
-                                    ui.add(
+                                    let output = ui.add(
                                         egui::TextEdit::multiline(&mut self.notes_content)
                                             .id(egui::Id::new("notes_text_input"))
                                             .desired_width(f32::INFINITY) // Use all available width
                                             .desired_rows(15)
                                             .font(egui::TextStyle::Monospace),
                                     );
+
+                                    // Handle cursor position request
+                                    if let Some(pos) = self.requested_cursor_pos.take() {
+                                        if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), output.id) {
+                                            let ccursor = egui::text::CCursor::new(pos);
+                                            state.cursor.set_char_range(Some(egui::text::CCursorRange::one(ccursor)));
+                                            state.store(ui.ctx(), output.id);
+                                        }
+                                    }
                                 });
 
                                 // Show autocomplete dropdown as a floating panel above text area
@@ -945,9 +969,9 @@ impl eframe::App for PomodoroApp {
                                                     ui.label(
                                                         egui::RichText::new(
                                                             if self.dropdown_type == DropdownType::Command {
-                                                                "Commands:"
+                                                                self.t.autocomplete_commands()
                                                             } else {
-                                                                "Hashtags:"
+                                                                self.t.autocomplete_hashtags()
                                                             },
                                                         )
                                                         .weak()
@@ -984,6 +1008,7 @@ impl eframe::App for PomodoroApp {
                                                                                 self.dropdown_start_pos,
                                                                                 &replacement,
                                                                             );
+                                                                            self.requested_cursor_pos = Some(self.dropdown_start_pos + replacement.chars().count());
                                                                         }
                                                                     }
                                                                     DropdownType::Hashtag => {
@@ -994,6 +1019,7 @@ impl eframe::App for PomodoroApp {
                                                                             self.dropdown_start_pos,
                                                                             &selected_item,
                                                                         );
+                                                                        self.requested_cursor_pos = Some(self.dropdown_start_pos + selected_item.chars().count() + 1);
                                                                         self.hashtag_library.add(&selected_item);
                                                                     }
                                                                 }
@@ -1028,8 +1054,8 @@ impl eframe::App for PomodoroApp {
 
                     // Mode label
                     let (mode_label, mode_color) = match self.mode {
-                        TimerMode::Work => ("WORK", work_color),
-                        TimerMode::Break => ("BREAK", break_color),
+                        TimerMode::Work => (self.t.timer_work(), work_color),
+                        TimerMode::Break => (self.t.timer_break(), break_color),
                     };
                     ui.label(egui::RichText::new(mode_label).size(20.0).color(mode_color));
 
@@ -1039,8 +1065,8 @@ impl eframe::App for PomodoroApp {
                     ui.horizontal(|ui| {
                         ui.add_space(20.0);
 
-                        let button_label = if self.is_running { "PAUSE" } else { "START" };
-                        if Self::rounded_button(ui, button_label, text_color, button_color)
+                        let button_label = if self.is_running { self.t.pause_button() } else { self.t.start_button() };
+                        if Self::rounded_button(ui, &button_label, text_color, button_color)
                             .clicked()
                         {
                             self.toggle_timer();
@@ -1048,13 +1074,13 @@ impl eframe::App for PomodoroApp {
 
                         ui.add_space(10.0);
 
-                        if Self::rounded_button(ui, "RESET", text_color, button_color).clicked() {
+                        if Self::rounded_button(ui, &self.t.reset_button(), text_color, button_color).clicked() {
                             self.reset_timer();
                         }
 
                         ui.add_space(10.0);
 
-                        if Self::rounded_button(ui, "SKIP", text_color, button_color).clicked() {
+                        if Self::rounded_button(ui, &self.t.button_skip().to_uppercase(), text_color, button_color).clicked() {
                             self.skip_to_break();
                         }
 
@@ -1066,7 +1092,7 @@ impl eframe::App for PomodoroApp {
                     // Settings button
                     if ui
                         .add(
-                            egui::Button::new(egui::RichText::new("⚙ Settings").color(text_color))
+                            egui::Button::new(egui::RichText::new(self.t.settings_btn()).color(text_color))
                                 .fill(button_color)
                                 .rounding(8.0),
                         )
@@ -1082,7 +1108,7 @@ impl eframe::App for PomodoroApp {
                     if ui
                         .add(
                             egui::Button::new(
-                                egui::RichText::new("📊 Survey Summary").color(text_color),
+                                egui::RichText::new(self.t.survey_summary_title()).color(text_color),
                             )
                             .fill(button_color)
                             .rounding(8.0),
@@ -1095,14 +1121,13 @@ impl eframe::App for PomodoroApp {
                     ui.add_space(10.0);
 
                     // Notes toggle
-                    let toggle_label = if self.notes_enabled {
-                        "📝 Notes: ON"
-                    } else {
-                        "📝 Notes: OFF"
-                    };
                     if ui
                         .add(
-                            egui::Button::new(egui::RichText::new(toggle_label).color(text_color))
+                            egui::Button::new(egui::RichText::new(if self.notes_enabled {
+                                self.t.notes_on()
+                            } else {
+                                self.t.notes_off()
+                            }).color(text_color))
                                 .fill(button_color)
                                 .rounding(8.0),
                         )
@@ -1113,66 +1138,65 @@ impl eframe::App for PomodoroApp {
                         let _ = self.config.save();
                     }
 
-                    // Session counter
-                    ui.add_space(10.0);
-                    ui.label(
-                        egui::RichText::new(format!("Sessions: {}", self.sessions_completed))
-                            .size(12.0)
-                            .color(egui::Color32::from_rgb(0x88, 0x88, 0x88)),
-                    );
+                        // Session counter
+                        ui.add_space(10.0);
+                        ui.label(
+                            egui::RichText::new(self.t.sessions_completed_label(self.sessions_completed))
+                                .size(12.0)
+                                .color(egui::Color32::from_rgb(0x88, 0x88, 0x88)),
+                        );
 
                     // Help button
                     ui.add_space(10.0);
                     if ui
                         .add(
                             egui::Button::new(
-                                egui::RichText::new("❓ Help").color(text_color),
+                                egui::RichText::new(self.t.help_button()).color(text_color),
                             )
                             .fill(button_color)
                             .rounding(8.0),
                         )
                         .clicked()
                     {
-                        self.show_help = !self.show_help;
+                        self.show_help = true;
                     }
 
                     // TODO list section
                     ui.add_space(15.0);
-                    ui.separator();
-                    ui.add_space(10.0);
-                    
-                    ui.label(
-                        egui::RichText::new("📋 TODO")
-                            .size(16.0)
+                    ui.vertical(|ui| {
+                        ui.add_space(20.0);
+                        ui.label(egui::RichText::new(self.t.todo_title())
+                            .size(24.0)
                             .color(text_color)
-                            .strong(),
-                    );
-                    
-                    // TODO count
+                            .strong());
+                        ui.add_space(10.0);
+
+                        // Add TODO input
                     let incomplete = self.todo_list.incomplete_count();
                     let completed = self.todo_list.completed_count();
                     ui.label(
-                        egui::RichText::new(format!("{} pending, {} done", incomplete, completed))
+                        egui::RichText::new(self.t.todo_status(incomplete, completed))
                             .size(11.0)
                             .color(egui::Color32::from_rgb(0x88, 0x88, 0x88)),
                     );
                     
                     ui.add_space(5.0);
                     
-                    // Add TODO input
-                    ui.horizontal(|ui| {
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.todo_input)
-                                .desired_width(150.0)
-                                .hint_text("Add task..."),
-                        );
-                        if ui.add(egui::Button::new("➕").fill(button_color)).clicked() {
-                            if !self.todo_input.trim().is_empty() {
+                        // Add TODO input
+                        ui.horizontal(|ui| {
+                            let response = ui.add(
+                                egui::TextEdit::singleline(&mut self.todo_input)
+                                    .hint_text(self.t.todo_hint())
+                                    .desired_width(280.0),
+                            );
+                            if (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+                                && !self.todo_input.trim().is_empty()
+                            {
                                 self.todo_list.add(self.todo_input.trim().to_string());
                                 self.todo_input.clear();
                                 self.todo_list.save();
                             }
-                        }
+                        });
                     });
                     
                     // TODO list
@@ -1224,15 +1248,16 @@ impl eframe::App for PomodoroApp {
                         });
                     
                     // Clear completed button
+                    let completed = self.todo_list.completed_count();
                     if completed > 0 {
-                        ui.add_space(5.0);
+                        ui.add_space(10.0);
                         if ui
                             .add(
                                 egui::Button::new(
-                                    egui::RichText::new("Clear completed").size(10.0).color(text_color),
+                                    egui::RichText::new(self.t.todo_clear_completed_btn()).color(text_color),
                                 )
                                 .fill(button_color)
-                                .rounding(4.0),
+                                .rounding(8.0),
                             )
                             .clicked()
                         {
@@ -1251,7 +1276,7 @@ impl eframe::App for PomodoroApp {
                     ui.add_space(20.0);
 
                     ui.label(
-                        egui::RichText::new("⚙ Settings")
+                        egui::RichText::new(format!("⚙ {}", self.t.settings_title()))
                             .size(28.0)
                             .color(text_color)
                             .strong(),
@@ -1264,7 +1289,8 @@ impl eframe::App for PomodoroApp {
                         ui.add_space(40.0);
                         ui.label(
                             egui::RichText::new(format!(
-                                "Work Duration: {} min",
+                                "{} {} min",
+                                self.t.work_duration(),
                                 self.temp_work_duration
                             ))
                             .size(18.0)
@@ -1305,7 +1331,8 @@ impl eframe::App for PomodoroApp {
                         ui.add_space(40.0);
                         ui.label(
                             egui::RichText::new(format!(
-                                "Break Duration: {} min",
+                                "{} {} min",
+                                self.t.break_duration(),
                                 self.temp_break_duration
                             ))
                             .size(18.0)
@@ -1345,7 +1372,7 @@ impl eframe::App for PomodoroApp {
                     ui.horizontal(|ui| {
                         ui.add_space(40.0);
                         ui.label(
-                            egui::RichText::new("Notes Directory:")
+                            egui::RichText::new(self.t.notes_directory())
                                 .size(16.0)
                                 .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
                         );
@@ -1361,17 +1388,16 @@ impl eframe::App for PomodoroApp {
                     ui.add_space(20.0);
 
                     // Survey toggle
-                    let survey_toggle_label = if self.config.survey_enabled {
-                        "📊 Surveys: ON"
-                    } else {
-                        "📊 Surveys: OFF"
-                    };
                     ui.horizontal(|ui| {
                         ui.add_space(40.0);
                         if ui
                             .add(
                                 egui::Button::new(
-                                    egui::RichText::new(survey_toggle_label)
+                                    egui::RichText::new(if self.config.survey_enabled {
+                                        self.t.surveys_on()
+                                    } else {
+                                        self.t.surveys_off()
+                                    })
                                         .size(16.0)
                                         .color(text_color),
                                 )
@@ -1393,7 +1419,7 @@ impl eframe::App for PomodoroApp {
                         if ui
                             .add(
                                 egui::Button::new(
-                                    egui::RichText::new("🗑 Reset Survey Data")
+                                    egui::RichText::new(self.t.reset_survey_data_btn())
                                         .size(14.0)
                                         .color(egui::Color32::from_rgb(0xe7, 0x4c, 0x3c)),
                                 )
@@ -1406,6 +1432,28 @@ impl eframe::App for PomodoroApp {
                         }
                     });
 
+                    ui.add_space(20.0);
+
+                    // Language selection
+                    ui.horizontal(|ui| {
+                        ui.add_space(40.0);
+                        ui.label(
+                            egui::RichText::new(self.t.language_setting())
+                                .size(18.0)
+                                .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
+                        );
+                        ui.add_space(10.0);
+                        egui::ComboBox::from_label("")
+                            .selected_text(match self.temp_language {
+                                Language::English => self.t.lang_en(),
+                                Language::German => self.t.lang_de(),
+                            })
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut self.temp_language, Language::English, self.t.lang_en());
+                                ui.selectable_value(&mut self.temp_language, Language::German, self.t.lang_de());
+                            });
+                    });
+
                     ui.add_space(40.0);
 
                     // Dialog buttons
@@ -1413,26 +1461,32 @@ impl eframe::App for PomodoroApp {
                         ui.add_space(40.0);
                         if ui
                             .add(
-                                egui::Button::new("Cancel")
+                                egui::Button::new(self.t.button_cancel())
                                     .fill(button_color)
                                     .rounding(8.0)
-                                    .min_size(egui::vec2(80.0, 35.0)),
+                                    .min_size(egui::vec2(100.0, 35.0)),
                             )
                             .clicked()
                         {
                             self.show_settings = false;
+                            // Reset temp values
+                            self.temp_work_duration = self.config.work_duration;
+                            self.temp_break_duration = self.config.break_duration;
+                            self.temp_notes_directory = self.config.notes_directory.clone();
+                            self.temp_language = self.config.language;
                         }
                         ui.add_space(15.0);
                         if ui
                             .add(
-                                egui::Button::new("Save")
+                                egui::Button::new(self.t.button_save())
                                     .fill(egui::Color32::from_rgb(0x27, 0xae, 0x60))
                                     .rounding(8.0)
-                                    .min_size(egui::vec2(80.0, 35.0)),
+                                    .min_size(egui::vec2(100.0, 35.0)),
                             )
                             .clicked()
                         {
                             self.save_settings();
+                            self.show_settings = false;
                         }
                     });
                 });
@@ -1441,7 +1495,7 @@ impl eframe::App for PomodoroApp {
 
         // Survey dialog
         if self.show_survey {
-            egui::Window::new("Session Complete! 🎉")
+            egui::Window::new(format!("{} 🎉", self.t.survey_complete_title()))
                 .collapsible(false)
                 .resizable(false)
                 .constrain(false)
@@ -1449,7 +1503,7 @@ impl eframe::App for PomodoroApp {
                     ui.set_min_width(400.0);
 
                     ui.label(
-                        egui::RichText::new("How was your focus this session?")
+                        egui::RichText::new(self.t.survey_question_focus())
                             .size(16.0)
                             .color(text_color),
                     );
@@ -1459,10 +1513,7 @@ impl eframe::App for PomodoroApp {
                     // Focus rating
                     ui.horizontal(|ui| {
                         ui.label(
-                            egui::RichText::new(format!(
-                                "Focus Rating: {}/10",
-                                self.survey_focus_rating
-                            ))
+                            egui::RichText::new(self.t.survey_rating_label(self.survey_focus_rating))
                             .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
                         );
 
@@ -1486,26 +1537,26 @@ impl eframe::App for PomodoroApp {
 
                     // What helped
                     ui.label(
-                        egui::RichText::new("What helped your focus? (optional)")
+                        egui::RichText::new(self.t.survey_question_helped())
                             .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
                     );
                     ui.add(
                         egui::TextEdit::singleline(&mut self.survey_what_helped)
                             .desired_width(350.0)
-                            .hint_text("e.g., quiet room, coffee, music..."),
+                            .hint_text(self.t.helped_hint()),
                     );
 
                     ui.add_space(10.0);
 
                     // What hurt
                     ui.label(
-                        egui::RichText::new("What hurt your focus? (optional)")
+                        egui::RichText::new(self.t.survey_question_hurt())
                             .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
                     );
                     ui.add(
                         egui::TextEdit::singleline(&mut self.survey_what_hurt)
                             .desired_width(350.0)
-                            .hint_text("e.g., notifications, noise, hunger..."),
+                            .hint_text(self.t.hurt_hint()),
                     );
 
                     ui.add_space(20.0);
@@ -1515,18 +1566,12 @@ impl eframe::App for PomodoroApp {
                         ui.separator();
                         ui.add_space(5.0);
                         ui.label(
-                            egui::RichText::new(format!(
-                                "Today's Avg Focus: {:.1}/10",
-                                self.survey_data.average_focus_today
-                            ))
+                            egui::RichText::new(self.t.avg_focus_today(self.survey_data.average_focus_today))
                             .size(12.0)
                             .color(egui::Color32::from_rgb(0x88, 0x88, 0x88)),
                         );
                         ui.label(
-                            egui::RichText::new(format!(
-                                "Overall Avg Focus: {:.1}/10",
-                                self.survey_data.average_focus
-                            ))
+                            egui::RichText::new(self.t.avg_focus_overall(self.survey_data.average_focus))
                             .size(12.0)
                             .color(egui::Color32::from_rgb(0x88, 0x88, 0x88)),
                         );
@@ -1536,14 +1581,14 @@ impl eframe::App for PomodoroApp {
                     // Dialog buttons
                     ui.horizontal(|ui| {
                         if ui
-                            .add(egui::Button::new("Skip").fill(button_color).rounding(6.0))
+                            .add(egui::Button::new(self.t.button_skip()).fill(button_color).rounding(6.0))
                             .clicked()
                         {
                             self.skip_survey();
                         }
                         if ui
                             .add(
-                                egui::Button::new("Submit")
+                                egui::Button::new(self.t.button_submit())
                                     .fill(egui::Color32::from_rgb(0x27, 0xae, 0x60))
                                     .rounding(6.0),
                             )
@@ -1561,7 +1606,7 @@ impl eframe::App for PomodoroApp {
                 ui.vertical_centered(|ui| {
                     ui.add_space(20.0);
                     ui.label(
-                        egui::RichText::new("📊 Survey Summary")
+                        egui::RichText::new(self.t.survey_summary_title())
                             .size(28.0)
                             .color(text_color)
                             .strong(),
@@ -1575,21 +1620,18 @@ impl eframe::App for PomodoroApp {
 
                         if self.survey_data.focus_count == 0 {
                             ui.label(
-                                egui::RichText::new("No survey data yet!")
+                                egui::RichText::new(self.t.no_survey_data())
                                     .size(16.0)
-                                    .color(egui::Color32::from_rgb(0xaa, 0xaa, 0xaa)),
-                            );
+                                    .color(egui::Color32::from_rgb(0xaa, 0xaa, 0xaa)));
                             ui.add_space(10.0);
-                            ui.label(
-                                egui::RichText::new("Complete a work session to add survey responses.")
-                                    .size(12.0)
-                                    .color(egui::Color32::from_rgb(0x88, 0x88, 0x88)),
-                            );
+                            ui.label(egui::RichText::new(self.t.complete_session_prompt())
+                                .size(12.0)
+                                .color(egui::Color32::from_rgb(0x88, 0x88, 0x88)));
                         } else {
                             // Focus ratings section
                             ui.vertical(|ui| {
                                 ui.label(
-                                    egui::RichText::new("Focus Ratings")
+                                    egui::RichText::new(self.t.focus_ratings())
                                         .size(16.0)
                                         .strong()
                                         .color(text_color),
@@ -1598,7 +1640,7 @@ impl eframe::App for PomodoroApp {
 
                                 ui.horizontal(|ui| {
                                     ui.label(
-                                        egui::RichText::new("Today's Average:")
+                                        egui::RichText::new(self.t.todays_average())
                                             .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
                                     );
                                     ui.label(
@@ -1613,7 +1655,7 @@ impl eframe::App for PomodoroApp {
 
                                 ui.horizontal(|ui| {
                                     ui.label(
-                                        egui::RichText::new("Overall Average:")
+                                        egui::RichText::new(self.t.overall_average())
                                             .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
                                     );
                                     ui.label(
@@ -1628,7 +1670,7 @@ impl eframe::App for PomodoroApp {
 
                                 ui.horizontal(|ui| {
                                     ui.label(
-                                        egui::RichText::new("Total Sessions:")
+                                        egui::RichText::new(self.t.total_sessions())
                                             .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
                                     );
                                     ui.label(
@@ -1645,7 +1687,7 @@ impl eframe::App for PomodoroApp {
                             if !self.survey_data.what_helped.is_empty() {
                                 ui.vertical(|ui| {
                                     ui.label(
-                                        egui::RichText::new("What Helped Focus")
+                                        egui::RichText::new(self.t.how_helped())
                                             .size(16.0)
                                             .strong()
                                             .color(egui::Color32::from_rgb(0x27, 0xae, 0x60)),
@@ -1665,7 +1707,7 @@ impl eframe::App for PomodoroApp {
                             if !self.survey_data.what_hurt.is_empty() {
                                 ui.vertical(|ui| {
                                     ui.label(
-                                        egui::RichText::new("What Hurt Focus")
+                                        egui::RichText::new(self.t.how_hurt())
                                             .size(16.0)
                                             .strong()
                                             .color(egui::Color32::from_rgb(0xe7, 0x4c, 0x3c)),
@@ -1689,7 +1731,7 @@ impl eframe::App for PomodoroApp {
                         ui.vertical_centered(|ui| {
                             if ui
                                 .add(
-                                    egui::Button::new(egui::RichText::new("Close").color(text_color))
+                                    egui::Button::new(egui::RichText::new(self.t.button_close()).color(text_color))
                                         .fill(button_color)
                                         .rounding(8.0)
                                         .min_size(egui::vec2(100.0, 32.0)),
@@ -1712,7 +1754,7 @@ impl eframe::App for PomodoroApp {
                 ui.vertical_centered(|ui| {
                     ui.add_space(20.0);
                     ui.label(
-                        egui::RichText::new("⌨️ Keyboard Shortcuts")
+                        egui::RichText::new(self.t.keyboard_shortcuts_title())
                             .size(28.0)
                             .color(text_color)
                             .strong(),
@@ -1727,7 +1769,7 @@ impl eframe::App for PomodoroApp {
                         // Timer Controls
                         ui.vertical(|ui| {
                             ui.label(
-                                egui::RichText::new("Timer Controls")
+                                egui::RichText::new(self.t.help_timer_title())
                                     .size(16.0)
                                     .strong()
                                     .color(text_color),
@@ -1735,8 +1777,8 @@ impl eframe::App for PomodoroApp {
                             ui.add_space(8.0);
 
                             let timer_shortcuts = [
-                                ("Space", "Start/Pause timer"),
-                                ("R", "Reset timer"),
+                                ("Space", self.t.shortcut_start_pause()),
+                                ("R", self.t.shortcut_reset()),
                             ];
                             for (key, action) in timer_shortcuts {
                                 ui.horizontal(|ui| {
@@ -1756,7 +1798,7 @@ impl eframe::App for PomodoroApp {
                         // Notes Editor
                         ui.vertical(|ui| {
                             ui.label(
-                                egui::RichText::new("Notes Editor")
+                                egui::RichText::new(self.t.help_notes_title())
                                     .size(16.0)
                                     .strong()
                                     .color(text_color),
@@ -1764,14 +1806,14 @@ impl eframe::App for PomodoroApp {
                             ui.add_space(8.0);
 
                             let notes_shortcuts = [
-                                ("Ctrl+P", "Format markdown & toggle preview"),
-                                ("Ctrl+D", "Insert timestamped bullet"),
-                                ("Tab", "Indent list item (on empty bullet)"),
-                                ("/", "Start slash command"),
-                                ("#", "Start hashtag autocomplete"),
-                                ("↑/↓", "Navigate dropdown suggestions"),
-                                ("Enter/Tab", "Select suggestion"),
-                                ("Esc", "Close dropdown"),
+                                ("Ctrl+P", self.t.shortcut_format()),
+                                ("Ctrl+D", self.t.shortcut_bullet()),
+                                ("Tab", self.t.shortcut_indent()),
+                                ("/", self.t.shortcut_slash()),
+                                ("#", self.t.shortcut_hashtag()),
+                                ("↑/↓", self.t.shortcut_navigate()),
+                                ("Enter/Tab", self.t.shortcut_select()),
+                                ("Esc", self.t.shortcut_close_dropdown()),
                             ];
                             for (key, action) in notes_shortcuts {
                                 ui.horizontal(|ui| {
@@ -1791,7 +1833,7 @@ impl eframe::App for PomodoroApp {
                         // General
                         ui.vertical(|ui| {
                             ui.label(
-                                egui::RichText::new("General")
+                                egui::RichText::new(self.t.help_general_title())
                                     .size(16.0)
                                     .strong()
                                     .color(text_color),
@@ -1799,8 +1841,8 @@ impl eframe::App for PomodoroApp {
                             ui.add_space(8.0);
 
                             let general_shortcuts = [
-                                ("Ctrl+?", "Toggle this help menu"),
-                                ("S", "Open settings"),
+                                ("Ctrl+?", self.t.shortcut_toggle_help()),
+                                ("S", self.t.shortcut_settings()),
                             ];
                             for (key, action) in general_shortcuts {
                                 ui.horizontal(|ui| {
@@ -1823,7 +1865,7 @@ impl eframe::App for PomodoroApp {
                     ui.vertical_centered(|ui| {
                         if ui
                             .add(
-                                egui::Button::new(egui::RichText::new("Close").color(text_color))
+                                egui::Button::new(egui::RichText::new(self.t.button_close()).color(text_color))
                                     .fill(button_color)
                                     .rounding(8.0)
                                     .min_size(egui::vec2(100.0, 32.0)),

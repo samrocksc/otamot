@@ -1,6 +1,6 @@
 [package]
 name = "otamot"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 authors = ["samrocksc"]
 description = "A cross-platform Pomodoro timer with notes support"

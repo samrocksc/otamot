@@ -13,6 +13,19 @@ pub enum NotesView {
     Preview,
 }
 
+/// Represents the available languages
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Language {
+    English,
+    German,
+}
+
+impl Default for Language {
+    fn default() -> Self {
+        Self::English
+    }
+}
+
 /// Configuration for the Pomodoro app
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -30,6 +43,9 @@ pub struct Config {
 
     #[serde(default = "default_survey_enabled")]
     pub survey_enabled: bool,
+
+    #[serde(default)]
+    pub language: Language,
 }
 
 fn default_survey_enabled() -> bool {
@@ -55,6 +71,7 @@ impl Default for Config {
             notes_directory: default_notes_directory(),
             notes_enabled: false,
             survey_enabled: default_survey_enabled(),
+            language: Language::default(),
         }
     }
 }
@@ -150,6 +167,7 @@ mod tests {
             notes_directory: "/custom/path".to_string(),
             notes_enabled: true,
             survey_enabled: true,
+            language: Language::German,
         };
 
         let json = serde_json::to_string(&config).unwrap();
@@ -160,6 +178,7 @@ mod tests {
         assert_eq!(parsed.notes_directory, "/custom/path");
         assert!(parsed.notes_enabled);
         assert!(parsed.survey_enabled);
+        assert_eq!(parsed.language, Language::German);
     }
 
     #[test]
@@ -214,6 +233,7 @@ mod tests {
             notes_directory: "/custom/notes".to_string(),
             notes_enabled: true,
             survey_enabled: true,
+            language: Language::English,
         };
 
         config.save_to_path(&config_path).unwrap();
