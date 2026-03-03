@@ -31,8 +31,8 @@ fn main() -> eframe::Result<()> {
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([950.0, 850.0])
-            .with_min_inner_size([600.0, 600.0])
+            .with_inner_size([1000.0, 800.0])
+            .with_min_inner_size([600.0, 500.0])
             .with_resizable(true)
             .with_title("Otamot")
             .with_icon(icon.unwrap_or_default()),

@@ -511,24 +511,30 @@ impl eframe::App for PomodoroApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             if self.notes_enabled {
                 ui.horizontal(|ui| {
-                    let total_height = ui.available_height();
-                    
-                    // Sidebar
-                    ui.allocate_ui(egui::vec2(280.0, total_height), |ui| {
+                    let total_width = ui.available_width();
+                    let sidebar_width = 250.0;
+                    let notes_width = total_width - sidebar_width - 20.0; // Subtract padding
+
+                    // Side Pillar 1: Timer and basic controls
+                    ui.allocate_ui(egui::vec2(sidebar_width, ui.available_height()), |ui| {
                         egui::ScrollArea::vertical()
                             .id_salt("sidebar_scroll")
                             .auto_shrink([false, false])
                             .show(ui, |ui| {
                                 self.render_timer_column(ui, text_color, button_color, work_color, break_color);
-                                ui.add_space(20.0);
                             });
                     });
 
-                    ui.add_space(10.0);
+                    ui.separator();
 
-                    // Notes Area
-                    ui.allocate_ui(egui::vec2(ui.available_width(), total_height), |ui| {
-                        self.render_notes_column(ctx, ui, text_color, tab_active_color, tab_inactive_color);
+                    // Side Pillar 2: Notes area and TODOs
+                    ui.allocate_ui(egui::vec2(notes_width, ui.available_height()), |ui| {
+                        egui::ScrollArea::vertical()
+                            .id_salt("notes_area_scroll")
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                self.render_notes_column(ctx, ui, text_color, tab_active_color, tab_inactive_color, button_color);
+                            });
                     });
                 });
             } else {
@@ -635,13 +641,9 @@ impl PomodoroApp {
 
         ui.add_space(10.0);
         ui.label(egui::RichText::new(self.t.sessions_completed_label(self.sessions_completed)).size(12.0).color(egui::Color32::from_rgb(0x88, 0x88, 0x88)));
-        
-        if self.todo_enabled {
-            ui_components::render_todo_panel(ui, &mut self.todo_list, &mut self.todo_input, &self.t, text_color, button_color);
-        }
     }
 
-    fn render_notes_column(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, text_color: egui::Color32, active_color: egui::Color32, inactive_color: egui::Color32) {
+    fn render_notes_column(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, text_color: egui::Color32, active_color: egui::Color32, inactive_color: egui::Color32, button_color: egui::Color32) {
         // Tab buttons
         ui.horizontal(|ui| {
             let edit_color = if self.notes_view == NotesView::Edit { active_color } else { inactive_color };
@@ -663,34 +665,29 @@ impl PomodoroApp {
                     self.focus_notes_input = false;
                 }
                 
-                egui::ScrollArea::vertical()
-                    .id_salt("notes_edit_scroll")
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        let output = ui.add(egui::TextEdit::multiline(&mut self.notes_content)
-                            .id(egui::Id::new("notes_text_input"))
-                            .desired_width(f32::INFINITY)
-                            .desired_rows(30)
-                            .lock_focus(true)
-                            .font(egui::TextStyle::Monospace));
-                        
-                        if let Some(pos) = self.requested_cursor_pos.take() {
-                            if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), output.id) {
-                                state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(pos))));
-                                state.store(ui.ctx(), output.id);
-                            }
-                        }
-                    });
+                let output = ui.add(egui::TextEdit::multiline(&mut self.notes_content)
+                    .id(egui::Id::new("notes_text_input"))
+                    .desired_width(f32::INFINITY)
+                    .desired_rows(12)
+                    .font(egui::TextStyle::Monospace));
+                
+                if let Some(pos) = self.requested_cursor_pos.take() {
+                    if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), output.id) {
+                        state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(pos))));
+                        state.store(ui.ctx(), output.id);
+                    }
+                }
                 self.render_dropdown(ui);
             }
             NotesView::Preview => {
-                egui::ScrollArea::vertical()
-                    .id_salt("notes_preview_scroll")
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        self.render_markdown_preview(ui);
-                    });
+                // We render preview without an internal scroll here, let the pillar scroll handle it
+                self.render_markdown_preview(ui);
             }
+        }
+
+        if self.todo_enabled {
+            ui.add_space(30.0);
+            ui_components::render_todo_panel(ui, &mut self.todo_list, &mut self.todo_input, &self.t, text_color, button_color);
         }
     }
 
