@@ -81,13 +81,13 @@ impl Theme {
     pub fn robotic_lime() -> Self {
         Self {
             name: "Robotic Lime".to_string(),
-            text: CustomColor::new(0x00, 0xff, 0x00),      // Classic Matrix/Terminal Green
-            text_dim: CustomColor::new(0x00, 0x88, 0x00),  // Dimmed green
-            text_highlight: CustomColor::new(0x00, 0x33, 0x00), // Dark grey-green for highlights
-            work: CustomColor::new(0xcc, 0xff, 0x00),      // Neon yellowish green
-            b_break: CustomColor::new(0x00, 0xcc, 0x00),   // Slightly darker green
-            button: CustomColor::new(0x00, 0x33, 0x00),   // Very dark green
-            bg: CustomColor::new(0x05, 0x05, 0x05),       // Almost black
+            text: CustomColor::new(0x00, 0xff, 0x00),      // Terminal Green
+            text_dim: CustomColor::new(0x00, 0x88, 0x00),  // Dim Green
+            text_highlight: CustomColor::new(0x1a, 0x1a, 0x1a), // Dark Grey for contrast on highlight
+            work: CustomColor::new(0xcc, 0xff, 0x00),      // Neon Yellow-Green
+            b_break: CustomColor::new(0x00, 0xcc, 0x00),   // Darker Green
+            button: CustomColor::new(0x00, 0x33, 0x00),   // Deep Forest Green
+            bg: CustomColor::new(0x05, 0x05, 0x05),       // Black
             tab_active: CustomColor::new(0x00, 0xff, 0x00),
             tab_inactive: CustomColor::new(0x00, 0x22, 0x00),
         }
@@ -96,13 +96,13 @@ impl Theme {
     pub fn monokai_dark() -> Self {
         Self {
             name: "Monokai Dark".to_string(),
-            text: CustomColor::new(0xF8, 0xF8, 0xF2),      // Off-white
+            text: CustomColor::new(0xF8, 0xF8, 0xF2),      // White
             text_dim: CustomColor::new(0x75, 0x71, 0x5E),  // Stone
-            text_highlight: CustomColor::new(0x27, 0x28, 0x22), // Darker background
+            text_highlight: CustomColor::new(0x27, 0x28, 0x22), // Background
             work: CustomColor::new(0xF9, 0x26, 0x72),      // Pink
             b_break: CustomColor::new(0xA6, 0xE2, 0x2E),   // Green
-            button: CustomColor::new(0x49, 0x48, 0x3E),   // Muted brown
-            bg: CustomColor::new(0x27, 0x28, 0x22),       // Monokai background
+            button: CustomColor::new(0x49, 0x48, 0x3E),   // Brown
+            bg: CustomColor::new(0x27, 0x28, 0x22),       // Grey-Black
             tab_active: CustomColor::new(0xFD, 0x97, 0x1F), // Orange
             tab_inactive: CustomColor::new(0x3E, 0x3D, 0x32),
         }
@@ -111,15 +111,15 @@ impl Theme {
     pub fn monokai_light() -> Self {
         Self {
             name: "Monokai Light".to_string(),
-            text: CustomColor::new(0x00, 0x00, 0x00),      // Pure black text
-            text_dim: CustomColor::new(0x75, 0x71, 0x5E),  // Stone/Dim
-            text_highlight: CustomColor::new(0xFF, 0xFF, 0xFF), // Pure white for highlights
+            text: CustomColor::new(0x27, 0x28, 0x22),      // Classic Monokai background used as text color
+            text_dim: CustomColor::new(0x75, 0x71, 0x5E),  // Stone
+            text_highlight: CustomColor::new(0xFF, 0xFF, 0xFF), // Pure white
             work: CustomColor::new(0xF9, 0x26, 0x72),      // Pink
             b_break: CustomColor::new(0xA6, 0xE2, 0x2E),   // Green
             button: CustomColor::new(0xE6, 0xDB, 0x74),   // Yellow
-            bg: CustomColor::new(0xFF, 0xFF, 0xFF),       // Pure white background
+            bg: CustomColor::new(0xFF, 0xFF, 0xFF),       // White
             tab_active: CustomColor::new(0xAE, 0x81, 0xFF), // Purple
-            tab_inactive: CustomColor::new(0xF0, 0xF0, 0xF0), // Very light grey
+            tab_inactive: CustomColor::new(0xE6, 0xE6, 0xE6), // Light Grey
         }
     }
 }

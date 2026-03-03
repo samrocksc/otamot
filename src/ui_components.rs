@@ -220,10 +220,7 @@ pub fn render_todo_panel(
                 };
                 ui.label(status_emoji);
 
-                if ui
-                    .add(egui::Button::new("❌").fill(button_color).small())
-                    .clicked()
-                {
+                if icon_button(ui, "❌", text_color, button_color).clicked() {
                     to_remove = Some(item.id);
                 }
             });
@@ -244,10 +241,7 @@ pub fn render_todo_panel(
                 );
                 ui.label("🟢"); // Always green if completed in TODO list
 
-                if ui
-                    .add(egui::Button::new("❌").fill(button_color).small())
-                    .clicked()
-                {
+                if icon_button(ui, "❌", text_color, button_color).clicked() {
                     to_remove = Some(item.id);
                 }
             });
@@ -268,16 +262,7 @@ pub fn render_todo_panel(
     let completed = todo_list.completed_count();
     if completed > 0 {
         ui.add_space(10.0);
-        if ui
-            .add(
-                egui::Button::new(
-                    egui::RichText::new(t.todo_clear_completed_btn()).color(text_color),
-                )
-                .fill(button_color)
-                .rounding(8.0),
-            )
-            .clicked()
-        {
+        if rounded_button(ui, t.todo_clear_completed_btn(), text_color, button_color).clicked() {
             todo_list.clear_completed();
             let _ = todo_list.save();
         }
@@ -292,10 +277,40 @@ pub fn rounded_button(
     bg_color: egui::Color32,
 ) -> egui::Response {
     ui.add(
-        egui::Button::new(egui::RichText::new(label).color(text_color))
+        egui::Button::new(egui::RichText::new(label).color(text_color).strong())
             .fill(bg_color)
             .rounding(8.0)
-            .min_size(egui::vec2(70.0, 32.0)),
+            .min_size(egui::vec2(80.0, 32.0)),
+    )
+}
+
+/// A smaller rounded button for actions like "Add" or "Clear".
+pub fn small_rounded_button(
+    ui: &mut egui::Ui,
+    label: &str,
+    text_color: egui::Color32,
+    bg_color: egui::Color32,
+) -> egui::Response {
+    ui.add(
+        egui::Button::new(egui::RichText::new(label).size(12.0).color(text_color))
+            .fill(bg_color)
+            .rounding(6.0)
+            .min_size(egui::vec2(40.0, 24.0)),
+    )
+}
+
+/// A compact icon button (like the X delete button).
+pub fn icon_button(
+    ui: &mut egui::Ui,
+    icon: &str,
+    text_color: egui::Color32,
+    bg_color: egui::Color32,
+) -> egui::Response {
+    ui.add(
+        egui::Button::new(egui::RichText::new(icon).size(10.0).color(text_color))
+            .fill(bg_color)
+            .rounding(4.0)
+            .min_size(egui::vec2(22.0, 22.0)),
     )
 }
 
@@ -336,19 +351,19 @@ pub fn render_kanban_board(
                     kanban_input.clear();
                     let _ = board.save();
                 }
-                if ui.button("Add").clicked() && !kanban_input.trim().is_empty() {
+                if small_rounded_button(ui, "Add", text_color, Color32::from_rgb(0x27, 0xae, 0x60)).clicked() && !kanban_input.trim().is_empty() {
                     board.add_item(kanban_input.trim().to_string());
                     kanban_input.clear();
                     let _ = board.save();
                 }
 
                 ui.add_space(5.0);
-                if ui.button("Clear").clicked() {
+                if small_rounded_button(ui, "Clear", text_color, Color32::from_rgb(0x0f, 0x34, 0x60)).clicked() {
                     kanban_input.clear();
                 }
 
                 ui.add_space(5.0);
-                if ui.button("Clear Done").clicked() {
+                if small_rounded_button(ui, "Clear Done", text_color, Color32::from_rgb(0xe7, 0x4c, 0x3c)).clicked() {
                     board.clear_done();
                     let _ = board.save();
                 }
@@ -416,7 +431,7 @@ pub fn render_kanban_board(
                                                             egui::Align::Center,
                                                         ),
                                                         |ui| {
-                                                            if ui.small_button("❌").clicked() {
+                                                            if icon_button(ui, "❌", text_color, item_bg_color.linear_multiply(1.5)).clicked() {
                                                                 board.delete_item(item.id);
                                                                 let _ = board.save();
                                                             }
