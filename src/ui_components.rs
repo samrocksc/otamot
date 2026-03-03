@@ -164,7 +164,7 @@ pub fn render_todo_panel(
     ui.add_space(5.0);
     egui::ScrollArea::vertical()
         .id_salt("todo_scroll_area")
-        .max_height(200.0)
+        .max_height(350.0)
         .show(ui, |ui| {
             let mut to_remove = None;
             let mut to_toggle = None;

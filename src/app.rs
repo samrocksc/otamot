@@ -511,12 +511,16 @@ impl eframe::App for PomodoroApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             if self.notes_enabled {
                 ui.horizontal(|ui| {
-                    self.render_timer_column(ui, text_color, button_color, work_color, break_color);
+                    egui::ScrollArea::vertical().id_salt("timer_scroll").show(ui, |ui| {
+                        self.render_timer_column(ui, text_color, button_color, work_color, break_color);
+                    });
                     ui.add_space(20.0);
                     self.render_notes_column(ctx, ui, text_color, tab_active_color, tab_inactive_color);
                 });
             } else {
-                self.render_pure_timer_layout(ui, text_color, button_color, work_color, break_color);
+                egui::ScrollArea::vertical().id_salt("pure_timer_scroll").show(ui, |ui| {
+                    self.render_pure_timer_layout(ui, text_color, button_color, work_color, break_color);
+                });
             }
         });
 
