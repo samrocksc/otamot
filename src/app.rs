@@ -409,24 +409,37 @@ impl eframe::App for PomodoroApp {
                     .map(|(i, _)| i)
                     .unwrap_or(self.notes_content.len());
 
-                if shift {
-                    // Handle Outdent (Shift+Tab) - remove indentation before cursor
-                    // Find the start of the current line
-                    let line_start = self.notes_content[..byte_pos].rfind('\n')
-                        .map(|i| i + 1)
-                        .unwrap_or(0);
+                // Find the start of the current line
+                let line_start = self.notes_content[..byte_pos].rfind('\n')
+                    .map(|i| i + 1)
+                    .unwrap_or(0);
 
-                    // Check for indentation at line start
+                // Get the full line content (to end of line or cursor position for checking)
+                let line_end = self.notes_content[byte_pos..].find('\n')
+                    .map(|i| byte_pos + i)
+                    .unwrap_or(self.notes_content.len());
+                let full_line = &self.notes_content[line_start..line_end];
+
+                // Check if this line is a list item (with optional leading spaces)
+                let trimmed = full_line.trim_start();
+                let is_list_item = trimmed.starts_with("- ") || trimmed.starts_with("* ") ||
+                    trimmed.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) &&
+                    trimmed.find(". ").map(|i| trimmed.chars().take_while(|c| c.is_ascii_digit()).count() + 2 == i).unwrap_or(false);
+
+                if shift {
+                    // Handle Outdent (Shift+Tab)
                     let line_content = &self.notes_content[line_start..];
                     if line_content.starts_with("  ") {
-                        // Remove 2 spaces from line start
                         self.notes_content = format!("{}{}", &self.notes_content[..line_start], &self.notes_content[line_start + 2..]);
                         self.requested_cursor_pos = Some(self.notes_cursor_pos.saturating_sub(2));
                     } else if line_content.starts_with('\t') {
-                        // Remove tab from line start
                         self.notes_content = format!("{}{}", &self.notes_content[..line_start], &self.notes_content[line_start + 1..]);
                         self.requested_cursor_pos = Some(self.notes_cursor_pos.saturating_sub(1));
                     }
+                } else if is_list_item {
+                    // Handle Indent (Tab) on list item - insert spaces at line start
+                    self.notes_content.insert_str(line_start, "  ");
+                    self.requested_cursor_pos = Some(self.notes_cursor_pos + 2);
                 } else {
                     // Handle Indent (Tab) - insert 2 spaces at cursor position
                     self.notes_content.insert_str(byte_pos, "  ");
