@@ -5,12 +5,13 @@ use std::time::{Duration, Instant};
 // otamot library imports
 use otamot::bell::Bell;
 use otamot::commands::CommandManager;
-use otamot::config::{Config, Language, NotesView};
+use otamot::config::{Config, Language, NotesView, Theme};
 use otamot::easy_mark::editor::EasyMarkEditor;
 use otamot::hashtags::HashtagLibrary;
 use otamot::kanban::KanbanBoard;
 use otamot::localization::T;
 use otamot::markdown::{format_markdown, insert_date_bullet};
+use otamot::notes;
 use otamot::survey::SurveyData;
 use otamot::timer::TimerMode;
 use otamot::todo::TodoList;
@@ -44,6 +45,7 @@ pub struct PomodoroApp {
     temp_break_duration: u32,
     temp_notes_directory: String,
     temp_language: Language,
+    temp_theme: Theme,
 
     // Localization helper
     t: T,
@@ -114,9 +116,10 @@ impl PomodoroApp {
             temp_break_duration: config.break_duration,
             temp_notes_directory: config.notes_directory.clone(),
             temp_language: config.language,
+            temp_theme: config.theme.clone(),
             t: T::new(config.language),
             notes_enabled: config.notes_enabled,
-            notes_content: String::new(),
+            notes_content: notes::load_draft(&config.notes_directory),
             notes_view: NotesView::Edit,
             focus_notes_input: false,
             requested_cursor_pos: None,
@@ -138,7 +141,7 @@ impl PomodoroApp {
             kanban_input: String::new(),
             sidebar_collapsed: config.sidebar_collapsed,
 
-            sessions_completed: 0,
+            sessions_completed: survey_data.sessions_completed,
             show_survey: false,
             show_survey_summary: false,
             survey_data,
@@ -146,6 +149,14 @@ impl PomodoroApp {
             survey_what_helped: String::new(),
             survey_what_hurt: String::new(),
         }
+    }
+
+    fn get_notes_byte_pos(&self) -> usize {
+        self.notes_content
+            .char_indices()
+            .nth(self.notes_cursor_pos)
+            .map(|(idx, _)| idx)
+            .unwrap_or(self.notes_content.len())
     }
 
     fn format_time(&self) -> String {
@@ -159,6 +170,7 @@ impl PomodoroApp {
         ui: &mut egui::Ui,
         text_color: egui::Color32,
         button_color: egui::Color32,
+        _text_dim_color: egui::Color32,
     ) {
         ui.vertical(|ui| {
             ui.add_space(10.0);
@@ -190,6 +202,7 @@ impl PomodoroApp {
                     self.temp_work_duration = self.config.work_duration;
                     self.temp_break_duration = self.config.break_duration;
                     self.temp_notes_directory = self.config.notes_directory.clone();
+                    self.temp_theme = self.config.theme.clone();
                     self.show_settings = true;
                 }
                 
@@ -300,7 +313,7 @@ impl PomodoroApp {
                 ui.label(
                     egui::RichText::new(self.t.sessions_completed_label(self.sessions_completed))
                         .size(12.0)
-                        .color(egui::Color32::from_rgb(0x88, 0x88, 0x88)),
+                        .color(_text_dim_color),
                 );
             }
         });
@@ -462,6 +475,8 @@ impl PomodoroApp {
                                 self.save_notes();
                             }
                             self.sessions_completed += 1;
+                            self.survey_data.sessions_completed = self.sessions_completed;
+                            let _ = self.survey_data.save();
                             self.remaining_seconds = self.config.break_duration * 60;
                             self.session_start = None;
                             self.session_end = None;
@@ -548,6 +563,7 @@ impl PomodoroApp {
         if let Err(e) = std::fs::write(&filepath, &content) {
             eprintln!("Failed to save notes: {}", e);
         } else {
+            let _ = notes::clear_draft(&self.config.notes_directory);
             self.notes_content.clear();
         }
     }
@@ -557,6 +573,7 @@ impl PomodoroApp {
         self.config.break_duration = self.temp_break_duration;
         self.config.notes_directory = self.temp_notes_directory.clone();
         self.config.language = self.temp_language;
+        self.config.theme = self.temp_theme.clone();
         self.config.todo_enabled = self.todo_enabled;
         self.t = T::new(self.config.language);
         self.config.slash_commands = self.command_manager.get_commands();
@@ -585,7 +602,10 @@ impl PomodoroApp {
 
     /// Helper for markdown rendering
     fn render_markdown_preview(&self, ui: &mut egui::Ui) {
-        ui_components::render_markdown_preview(ui, &self.notes_content);
+        let theme = &self.config.theme;
+        let text_color = egui::Color32::from_rgb(theme.text.r, theme.text.g, theme.text.b);
+        let bg_color = egui::Color32::from_rgb(theme.bg.r, theme.bg.g, theme.bg.b);
+        ui_components::render_markdown_preview(ui, &self.notes_content, text_color, bg_color);
     }
 }
 
@@ -595,6 +615,12 @@ impl eframe::App for PomodoroApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Essential state updates
         self.tick();
+        
+        // Auto-save notes draft if they've changed
+        if self.notes_enabled && !self.notes_content.is_empty() {
+             let _ = notes::save_draft(&self.config.notes_directory, &self.notes_content);
+        }
+
         if self.is_running {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
@@ -652,12 +678,7 @@ impl eframe::App for PomodoroApp {
                     ctx.memory_mut(|mem| mem.request_focus(egui::Id::new("notes_text_input")));
 
                     // Get byte position from character position
-                    let byte_pos = self
-                        .notes_content
-                        .char_indices()
-                        .nth(self.notes_cursor_pos)
-                        .map(|(i, _)| i)
-                        .unwrap_or(self.notes_content.len());
+                    let byte_pos = self.get_notes_byte_pos();
 
                     // Find the start of the current line
                     let line_start = self.notes_content[..byte_pos]
@@ -685,7 +706,7 @@ impl eframe::App for PomodoroApp {
 
                     if shift {
                         // Handle Outdent (Shift+Tab)
-                        let line_content = &self.notes_content[line_start..];
+                        let line_content = &self.notes_content[line_start..byte_pos];
                         if line_content.starts_with("  ") {
                             self.notes_content = format!(
                                 "{}{}",
@@ -753,12 +774,7 @@ impl eframe::App for PomodoroApp {
 
             if is_focused {
                 // Get byte position from character position
-                let byte_pos = self
-                    .notes_content
-                    .char_indices()
-                    .nth(self.notes_cursor_pos)
-                    .map(|(i, _)| i)
-                    .unwrap_or(self.notes_content.len());
+                let byte_pos = self.get_notes_byte_pos();
 
                 // Find the start of the current line
                 let line_start = self.notes_content[..byte_pos]
@@ -818,10 +834,10 @@ impl eframe::App for PomodoroApp {
 
         // Autocomplete drop-down logic
         if self.notes_enabled && self.notes_view == NotesView::Edit {
-            let cursor_pos = self.notes_cursor_pos;
+            let byte_pos = self.get_notes_byte_pos();
             if !self.dropdown_visible {
                 if let Some((pos, cmd)) =
-                    CommandManager::find_command_at_cursor(&self.notes_content, cursor_pos)
+                    CommandManager::find_command_at_cursor(&self.notes_content, byte_pos)
                 {
                     self.dropdown_visible = true;
                     self.dropdown_type = DropdownType::Command;
@@ -829,7 +845,7 @@ impl eframe::App for PomodoroApp {
                     self.dropdown_items = self.command_manager.search_commands(&cmd);
                     self.dropdown_selected = 0;
                 } else if let Some((pos, tag)) =
-                    HashtagLibrary::find_hashtag_at_cursor(&self.notes_content, cursor_pos)
+                    HashtagLibrary::find_hashtag_at_cursor(&self.notes_content, byte_pos)
                 {
                     self.dropdown_visible = true;
                     self.dropdown_type = DropdownType::Hashtag;
@@ -842,7 +858,7 @@ impl eframe::App for PomodoroApp {
                 match self.dropdown_type {
                     DropdownType::Command => {
                         if let Some((pos, cmd)) =
-                            CommandManager::find_command_at_cursor(&self.notes_content, cursor_pos)
+                            CommandManager::find_command_at_cursor(&self.notes_content, byte_pos)
                         {
                             self.dropdown_start_pos = pos;
                             self.dropdown_items = self.command_manager.search_commands(&cmd);
@@ -852,7 +868,7 @@ impl eframe::App for PomodoroApp {
                     }
                     DropdownType::Hashtag => {
                         if let Some((pos, tag)) =
-                            HashtagLibrary::find_hashtag_at_cursor(&self.notes_content, cursor_pos)
+                            HashtagLibrary::find_hashtag_at_cursor(&self.notes_content, byte_pos)
                         {
                             self.dropdown_start_pos = pos;
                             self.dropdown_items = self.hashtag_library.search(&tag);
@@ -865,18 +881,23 @@ impl eframe::App for PomodoroApp {
         }
 
         // Theme Definitions
-        let text_color = egui::Color32::from_rgb(0xee, 0xee, 0xee);
-        let work_color = egui::Color32::from_rgb(0xe7, 0x4c, 0x3c);
-        let break_color = egui::Color32::from_rgb(0x27, 0xae, 0x60);
-        let button_color = egui::Color32::from_rgb(0x0f, 0x34, 0x60);
-        let bg_color = egui::Color32::from_rgb(0x1a, 0x1a, 0x2e);
-        let tab_active_color = egui::Color32::from_rgb(0x27, 0xae, 0x60);
-        let tab_inactive_color = egui::Color32::from_rgb(0x0f, 0x34, 0x60);
+        let theme = &self.config.theme;
+        let text_color = egui::Color32::from_rgb(theme.text.r, theme.text.g, theme.text.b);
+        let text_dim_color = egui::Color32::from_rgb(theme.text_dim.r, theme.text_dim.g, theme.text_dim.b);
+        let text_highlight_color = egui::Color32::from_rgb(theme.text_highlight.r, theme.text_highlight.g, theme.text_highlight.b);
+        let work_color = egui::Color32::from_rgb(theme.work.r, theme.work.g, theme.work.b);
+        let break_color = egui::Color32::from_rgb(theme.b_break.r, theme.b_break.g, theme.b_break.b);
+        let button_color = egui::Color32::from_rgb(theme.button.r, theme.button.g, theme.button.b);
+        let bg_color = egui::Color32::from_rgb(theme.bg.r, theme.bg.g, theme.bg.b);
+        let tab_active_color = egui::Color32::from_rgb(theme.tab_active.r, theme.tab_active.g, theme.tab_active.b);
+        let tab_inactive_color = egui::Color32::from_rgb(theme.tab_inactive.r, theme.tab_inactive.g, theme.tab_inactive.b);
 
         ctx.set_visuals(egui::Visuals {
             window_fill: bg_color,
             panel_fill: bg_color,
-            ..Default::default()
+            override_text_color: Some(text_color),
+            hyperlink_color: tab_active_color,
+            ..egui::Visuals::dark()
         });
 
         // Main UI Layout
@@ -906,6 +927,7 @@ impl eframe::App for PomodoroApp {
                                         ui,
                                         text_color,
                                         button_color,
+                                        text_dim_color,
                                     );
                                 });
                         });
@@ -924,11 +946,14 @@ impl eframe::App for PomodoroApp {
                                         ctx,
                                         ui,
                                         text_color,
+                                        text_dim_color,
+                                        text_highlight_color,
                                         tab_active_color,
                                         tab_inactive_color,
                                         button_color,
                                         work_color,
                                         break_color,
+                                        bg_color,
                                     );
                                 });
                         });
@@ -1003,11 +1028,14 @@ impl PomodoroApp {
         ctx: &egui::Context,
         ui: &mut egui::Ui,
         text_color: egui::Color32,
+        _text_dim_color: egui::Color32,
+        text_highlight_color: egui::Color32,
         active_color: egui::Color32,
         inactive_color: egui::Color32,
         button_color: egui::Color32,
         work_color: egui::Color32,
         break_color: egui::Color32,
+        bg_color: egui::Color32,
     ) {
         // Render Timer at the top of the right column
         self.render_timer(ui, text_color, button_color, work_color, break_color);
@@ -1021,17 +1049,29 @@ impl PomodoroApp {
                 } else {
                     inactive_color
                 };
+                let edit_text_color = if self.notes_view == NotesView::Edit {
+                    text_highlight_color
+                } else {
+                    text_color
+                };
+
                 let preview_color = if self.notes_view == NotesView::Preview {
                     active_color
                 } else {
                     inactive_color
                 };
+                let preview_text_color = if self.notes_view == NotesView::Preview {
+                    text_highlight_color
+                } else {
+                    text_color
+                };
+
                 if ui
                     .add(
                         egui::Button::new(
                             egui::RichText::new(self.t.edit_tab())
                                 .size(12.0)
-                                .color(text_color),
+                                .color(edit_text_color),
                         )
                         .fill(edit_color)
                         .rounding(4.0),
@@ -1050,7 +1090,7 @@ impl PomodoroApp {
                         egui::Button::new(
                             egui::RichText::new(self.t.preview_tab())
                                 .size(12.0)
-                                .color(text_color),
+                                .color(preview_text_color),
                         )
                         .fill(preview_color)
                         .rounding(4.0),
@@ -1126,6 +1166,9 @@ impl PomodoroApp {
                 &mut self.kanban_board,
                 &mut self.kanban_input,
                 &self.t,
+                text_color,
+                bg_color,
+                inactive_color,
             );
         }
     }
@@ -1192,6 +1235,7 @@ impl PomodoroApp {
                 self.temp_work_duration = self.config.work_duration;
                 self.temp_break_duration = self.config.break_duration;
                 self.temp_notes_directory = self.config.notes_directory.clone();
+                self.temp_theme = self.config.theme.clone();
                 self.show_settings = true;
             }
             if ui
@@ -1477,6 +1521,33 @@ impl PomodoroApp {
                             {
                                 self.reset_survey_data();
                             }
+                        });
+                        ui.add_space(20.0);
+                        ui.set_max_width(500.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(40.0);
+                            ui.label(
+                                egui::RichText::new("Theme")
+                                    .size(18.0)
+                                    .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
+                            );
+                            egui::ComboBox::from_label(" ")
+                                .selected_text(&self.temp_theme.name)
+                                .show_ui(ui, |ui| {
+                                    let themes = [
+                                        Theme::robotic_lime(),
+                                        Theme::monokai_dark(),
+                                        Theme::monokai_light(),
+                                        Theme::dark(),
+                                    ];
+                                    for theme in themes {
+                                        ui.selectable_value(
+                                            &mut self.temp_theme,
+                                            theme.clone(),
+                                            &theme.name,
+                                        );
+                                    }
+                                });
                         });
                         ui.add_space(20.0);
                         ui.horizontal(|ui| {

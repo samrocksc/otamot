@@ -3,7 +3,7 @@ use crate::localization::T;
 use crate::markdown::format_inline_markdown;
 use crate::todo::TodoList;
 use eframe::egui;
-use egui::{Color32, Frame, Id, Layout, Align};
+use egui::{Color32, Frame, Id};
 
 /// Manual word wrap utility for character-based wrapping.
 fn wrap_text(text: &str, max_chars: usize) -> String {
@@ -35,9 +35,9 @@ fn wrap_text(text: &str, max_chars: usize) -> String {
 }
 
 /// Renders a markdown preview within an egui::Frame.
-pub fn render_markdown_preview(ui: &mut egui::Ui, content: &str) {
+pub fn render_markdown_preview(ui: &mut egui::Ui, content: &str, text_color: Color32, bg_color: Color32) {
     egui::Frame::group(ui.style())
-        .fill(egui::Color32::from_rgb(0x2a, 0x2a, 0x40))
+        .fill(bg_color)
         .rounding(egui::Rounding::same(8.0))
         .inner_margin(egui::Margin::same(10.0))
         .show(ui, |ui| {
@@ -73,7 +73,7 @@ pub fn render_markdown_preview(ui: &mut egui::Ui, content: &str) {
                         egui::RichText::new(trimmed.strip_prefix("# ").unwrap_or(trimmed))
                             .size(24.0)
                             .strong()
-                            .color(egui::Color32::from_rgb(0xee, 0xee, 0xee)),
+                            .color(text_color),
                     );
                     ui.add_space(4.0);
                 } else if trimmed.starts_with("## ") {
@@ -82,7 +82,7 @@ pub fn render_markdown_preview(ui: &mut egui::Ui, content: &str) {
                         egui::RichText::new(trimmed.strip_prefix("## ").unwrap_or(trimmed))
                             .size(20.0)
                             .strong()
-                            .color(egui::Color32::from_rgb(0xee, 0xee, 0xee)),
+                            .color(text_color),
                     );
                     ui.add_space(3.0);
                 } else if trimmed.starts_with("### ") {
@@ -91,7 +91,7 @@ pub fn render_markdown_preview(ui: &mut egui::Ui, content: &str) {
                         egui::RichText::new(trimmed.strip_prefix("### ").unwrap_or(trimmed))
                             .size(16.0)
                             .strong()
-                            .color(egui::Color32::from_rgb(0xee, 0xee, 0xee)),
+                            .color(text_color),
                     );
                     ui.add_space(2.0);
                 } else if trimmed.starts_with("- ") || trimmed.starts_with("* ") {
@@ -104,7 +104,7 @@ pub fn render_markdown_preview(ui: &mut egui::Ui, content: &str) {
                     );
                     ui.label(
                         egui::RichText::new(bullet_text)
-                            .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
+                            .color(text_color),
                     );
                 } else if trimmed.starts_with("  - ") || trimmed.starts_with("  * ") {
                     // Indented list items
@@ -118,7 +118,7 @@ pub fn render_markdown_preview(ui: &mut egui::Ui, content: &str) {
                     );
                     ui.label(
                         egui::RichText::new(bullet_text)
-                            .color(egui::Color32::from_rgb(0xaa, 0xaa, 0xaa)),
+                            .color(text_color),
                     );
                 } else if trimmed.starts_with("**") && trimmed.ends_with("**") && trimmed.len() > 4
                 {
@@ -126,7 +126,7 @@ pub fn render_markdown_preview(ui: &mut egui::Ui, content: &str) {
                     ui.label(
                         egui::RichText::new(bold_text)
                             .strong()
-                            .color(egui::Color32::from_rgb(0xee, 0xee, 0xee)),
+                            .color(text_color),
                     );
                 } else if trimmed.is_empty() {
                     // Preserve empty lines as spacing
@@ -135,7 +135,7 @@ pub fn render_markdown_preview(ui: &mut egui::Ui, content: &str) {
                     // Regular paragraph text - handle inline bold via our markdown helper
                     let text = format_inline_markdown(trimmed);
                     ui.label(
-                        egui::RichText::new(text).color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
+                        egui::RichText::new(text).color(text_color),
                     );
                 }
             }
@@ -170,7 +170,7 @@ pub fn render_todo_panel(
         ui.label(
             egui::RichText::new(t.todo_status(incomplete, completed))
                 .size(11.0)
-                .color(egui::Color32::from_rgb(0x88, 0x88, 0x88)),
+                .color(text_color.linear_multiply(0.6)),
         );
 
         ui.add_space(5.0);
@@ -236,7 +236,7 @@ pub fn render_todo_panel(
                     to_toggle = Some(item.id);
                 }
 
-                let cur_text_color = egui::Color32::from_rgb(0x88, 0x88, 0x88);
+                let cur_text_color = text_color.linear_multiply(0.5);
                 ui.label(
                     egui::RichText::new(&item.text)
                         .strikethrough()
@@ -305,6 +305,9 @@ pub fn render_kanban_board(
     board: &mut KanbanBoard,
     kanban_input: &mut String,
     _t: &T,
+    text_color: Color32,
+    bg_color: Color32,
+    item_bg_color: Color32,
 ) {
     ui.add_space(10.0);
     
@@ -314,7 +317,7 @@ pub fn render_kanban_board(
             ui.label(
                 egui::RichText::new("Kanban Board")
                     .size(24.0)
-                    .color(Color32::from_rgb(0xee, 0xee, 0xee))
+                    .color(text_color)
                     .strong(),
             );
             ui.add_space(10.0);
@@ -372,13 +375,13 @@ pub fn render_kanban_board(
                             ui.label(
                                 egui::RichText::new(*label)
                                     .strong()
-                                    .color(Color32::from_rgb(0x88, 0xcc, 0xff)),
+                                    .color(text_color),
                             );
                         });
                         ui.add_space(5.0);
 
                         let frame = Frame::group(ui.style())
-                            .fill(Color32::from_rgb(0x1a, 0x1a, 0x2e))
+                            .fill(bg_color)
                             .inner_margin(4.0);
 
                         let (_, dropped_payload) = ui.dnd_drop_zone::<usize, ()>(frame, |ui| {
@@ -397,7 +400,7 @@ pub fn render_kanban_board(
                                 let response = ui
                                     .dnd_drag_source(item_id, item.id, |ui| {
                                         Frame::none()
-                                            .fill(Color32::from_rgb(0x2a, 0x2a, 0x40))
+                                            .fill(item_bg_color)
                                             .rounding(4.0)
                                             .inner_margin(8.0)
                                             .show(ui, |ui| {
@@ -406,7 +409,7 @@ pub fn render_kanban_board(
                                                     let wrapped = wrap_text(&item.text, 45);
                                                     ui.label(
                                                         egui::RichText::new(wrapped)
-                                                            .color(Color32::WHITE),
+                                                            .color(text_color),
                                                     );
                                                     ui.with_layout(
                                                         egui::Layout::right_to_left(

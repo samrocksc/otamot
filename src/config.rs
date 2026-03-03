@@ -27,6 +27,103 @@ impl Default for Language {
     }
 }
 
+/// A color representation for serialization
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub struct CustomColor {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+}
+
+impl CustomColor {
+    pub fn new(r: u8, g: u8, b: u8) -> Self {
+        Self { r, g, b }
+    }
+}
+
+/// Theme configuration for the application
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Theme {
+    pub name: String,
+    pub text: CustomColor,
+    pub text_dim: CustomColor,
+    pub text_highlight: CustomColor,
+    pub work: CustomColor,
+    pub b_break: CustomColor, // "break" is a keyword in Rust
+    pub button: CustomColor,
+    pub bg: CustomColor,
+    pub tab_active: CustomColor,
+    pub tab_inactive: CustomColor,
+}
+
+impl Default for Theme {
+    fn default() -> Self {
+        Theme::robotic_lime()
+    }
+}
+
+impl Theme {
+    pub fn dark() -> Self {
+        Self {
+            name: "Dark".to_string(),
+            text: CustomColor::new(0xee, 0xee, 0xee),
+            text_dim: CustomColor::new(0x88, 0x88, 0x88),
+            text_highlight: CustomColor::new(0xff, 0xff, 0xff),
+            work: CustomColor::new(0xe7, 0x4c, 0x3c),
+            b_break: CustomColor::new(0x27, 0xae, 0x60),
+            button: CustomColor::new(0x0f, 0x34, 0x60),
+            bg: CustomColor::new(0x1a, 0x1a, 0x2e),
+            tab_active: CustomColor::new(0x27, 0xae, 0x60),
+            tab_inactive: CustomColor::new(0x0f, 0x34, 0x60),
+        }
+    }
+
+    pub fn robotic_lime() -> Self {
+        Self {
+            name: "Robotic Lime".to_string(),
+            text: CustomColor::new(0x00, 0xff, 0x00),      // Classic Matrix/Terminal Green
+            text_dim: CustomColor::new(0x00, 0x88, 0x00),  // Dimmed green
+            text_highlight: CustomColor::new(0x00, 0x33, 0x00), // Dark grey-green for highlights
+            work: CustomColor::new(0xcc, 0xff, 0x00),      // Neon yellowish green
+            b_break: CustomColor::new(0x00, 0xcc, 0x00),   // Slightly darker green
+            button: CustomColor::new(0x00, 0x33, 0x00),   // Very dark green
+            bg: CustomColor::new(0x05, 0x05, 0x05),       // Almost black
+            tab_active: CustomColor::new(0x00, 0xff, 0x00),
+            tab_inactive: CustomColor::new(0x00, 0x22, 0x00),
+        }
+    }
+
+    pub fn monokai_dark() -> Self {
+        Self {
+            name: "Monokai Dark".to_string(),
+            text: CustomColor::new(0xF8, 0xF8, 0xF2),      // Off-white
+            text_dim: CustomColor::new(0x75, 0x71, 0x5E),  // Stone
+            text_highlight: CustomColor::new(0x27, 0x28, 0x22), // Darker background
+            work: CustomColor::new(0xF9, 0x26, 0x72),      // Pink
+            b_break: CustomColor::new(0xA6, 0xE2, 0x2E),   // Green
+            button: CustomColor::new(0x49, 0x48, 0x3E),   // Muted brown
+            bg: CustomColor::new(0x27, 0x28, 0x22),       // Monokai background
+            tab_active: CustomColor::new(0xFD, 0x97, 0x1F), // Orange
+            tab_inactive: CustomColor::new(0x3E, 0x3D, 0x32),
+        }
+    }
+
+    pub fn monokai_light() -> Self {
+        Self {
+            name: "Monokai Light".to_string(),
+            text: CustomColor::new(0x00, 0x00, 0x00),      // Pure black text
+            text_dim: CustomColor::new(0x75, 0x71, 0x5E),  // Stone/Dim
+            text_highlight: CustomColor::new(0xFF, 0xFF, 0xFF), // Pure white for highlights
+            work: CustomColor::new(0xF9, 0x26, 0x72),      // Pink
+            b_break: CustomColor::new(0xA6, 0xE2, 0x2E),   // Green
+            button: CustomColor::new(0xE6, 0xDB, 0x74),   // Yellow
+            bg: CustomColor::new(0xFF, 0xFF, 0xFF),       // Pure white background
+            tab_active: CustomColor::new(0xAE, 0x81, 0xFF), // Purple
+            tab_inactive: CustomColor::new(0xF0, 0xF0, 0xF0), // Very light grey
+        }
+    }
+}
+
 /// Configuration for the Pomodoro app
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -59,6 +156,9 @@ pub struct Config {
 
     #[serde(default)]
     pub sidebar_collapsed: bool,
+
+    #[serde(default)]
+    pub theme: Theme,
 }
 
 fn default_true() -> bool {
@@ -106,6 +206,7 @@ impl Default for Config {
             todo_enabled: true,
             kanban_enabled: false,
             sidebar_collapsed: false,
+            theme: Theme::robotic_lime(),
         }
     }
 }
@@ -206,6 +307,7 @@ mod tests {
             todo_enabled: true,
             kanban_enabled: false,
             sidebar_collapsed: false,
+            theme: Theme::dark(),
         };
 
         let json = serde_json::to_string(&config).unwrap();
@@ -292,6 +394,7 @@ mod tests {
             todo_enabled: true,
             kanban_enabled: false,
             sidebar_collapsed: false,
+            theme: Theme::dark(),
         };
 
         config.save_to_path(&config_path).unwrap();
@@ -338,6 +441,15 @@ mod tests {
 
         assert!(config_path.exists());
         assert!(config_path.parent().unwrap().exists());
+    }
+
+    #[test]
+    fn test_theme_serialization() {
+        let theme = Theme::robotic_lime();
+        let json = serde_json::to_string(&theme).unwrap();
+        let parsed: Theme = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.name, "Robotic Lime");
+        assert_eq!(parsed.text.r, 0x00);
     }
 
     #[test]
