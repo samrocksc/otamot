@@ -32,6 +32,10 @@ pub struct TodoList {
     #[serde(default)]
     pub completed: Vec<TodoItem>,
     
+    /// Historical archive of all completed items ever cleared
+    #[serde(default)]
+    pub history: Vec<TodoItem>,
+    
     pub next_id: usize,
     
     #[serde(default)]
@@ -48,6 +52,7 @@ impl TodoList {
             items: Vec::new(),
             active: Vec::new(),
             completed: Vec::new(),
+            history: Vec::new(),
             next_id: 1,
             enabled: false,
             last_updated: None,
@@ -180,9 +185,9 @@ impl TodoList {
         self.last_updated = Some(Local::now());
     }
 
-    /// Clear all completed items
+    /// Clear all completed items and move them to history
     pub fn clear_completed(&mut self) {
-        self.completed.clear();
+        self.history.extend(self.completed.drain(..));
         self.last_updated = Some(Local::now());
     }
 
@@ -222,6 +227,15 @@ impl TodoList {
             if !self.completed.is_empty() {
                 output.push_str(&format!("\n## Completed ({} items)\n\n", self.completed.len()));
                 for item in &self.completed {
+                    let ts = item.completed_at.map(|d| d.format(" [%Y-%m-%d %H:%M]").to_string())
+                        .unwrap_or_default();
+                    output.push_str(&format!("- [x] {}{}\n", item.text, ts));
+                }
+            }
+
+            if !self.history.is_empty() {
+                output.push_str(&format!("\n## History ({} items)\n\n", self.history.len()));
+                for item in &self.history {
                     let ts = item.completed_at.map(|d| d.format(" [%Y-%m-%d %H:%M]").to_string())
                         .unwrap_or_default();
                     output.push_str(&format!("- [x] {}{}\n", item.text, ts));
