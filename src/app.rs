@@ -2,7 +2,7 @@ use chrono::Local;
 use eframe::egui;
 use std::time::{Duration, Instant};
 
-// Since app.rs is included from main.rs, we use otamot:: for library imports
+// otamot library imports
 use otamot::bell::Bell;
 use otamot::commands::CommandManager;
 use otamot::config::{Config, Language, NotesView};
@@ -12,6 +12,7 @@ use otamot::markdown::{format_markdown, insert_date_bullet};
 use otamot::survey::SurveyData;
 use otamot::timer::TimerMode;
 use otamot::todo::TodoList;
+use otamot::ui_components;
 
 /// Dropdown state for autocomplete
 #[derive(Debug, Clone, PartialEq)]
@@ -203,13 +204,11 @@ impl PomodoroApp {
                     self.remaining_seconds -= 1;
                 } else {
                     // Timer complete - switch modes
-                    // Play the bell sound to notify the user
                     self.bell.play();
 
                     let previous_mode = self.mode;
                     self.mode = match self.mode {
                         TimerMode::Work => {
-                            // Record end time and save notes when work session completes
                             self.session_end = Some(Local::now());
                             if self.notes_enabled && !self.notes_content.is_empty() {
                                 self.save_notes();
@@ -226,7 +225,6 @@ impl PomodoroApp {
                         }
                     };
 
-                    // Show survey after work session completes (if surveys are enabled)
                     if previous_mode == TimerMode::Work && self.config.survey_enabled {
                         self.show_survey = true;
                     }
@@ -236,62 +234,11 @@ impl PomodoroApp {
         }
     }
 
-    fn generate_frontmatter(
-        &self,
-        start: chrono::DateTime<Local>,
-        end: chrono::DateTime<Local>,
-    ) -> String {
-        let mode = match self.mode {
-            TimerMode::Work => "work",
-            TimerMode::Break => "break",
-        };
-
-        // Extract hashtags from notes content
-        let mut tags = vec!["pomodoro".to_string(), mode.to_string()];
-        let content_tags = self.extract_hashtags(&self.notes_content);
-        for tag in content_tags {
-            if !tags.contains(&tag) {
-                tags.push(tag);
-            }
-        }
-
-        // Format tags as YAML list
-        let tags_yaml = tags
-            .iter()
-            .map(|t| format!("  - {}", t))
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        format!(
-            r#"---
-title: "Pomodoro Session"
-date: {}
-start_time: {}
-end_time: {}
-duration_minutes: {}
-mode: {}
-sessions_completed: {}
-tags:
-{}
----
-
-"#,
-            end.format("%Y-%m-%d %H:%M:%S"),
-            start.format("%Y-%m-%d %H:%M:%S"),
-            end.format("%Y-%m-%d %H:%M:%S"),
-            self.config.work_duration,
-            mode,
-            self.sessions_completed,
-            tags_yaml
-        )
-    }
-
     /// Extract hashtags from text content
     fn extract_hashtags(&self, text: &str) -> Vec<String> {
         let mut tags = Vec::new();
         for word in text.split_whitespace() {
             if word.starts_with('#') && word.len() > 1 {
-                // Extract hashtag, removing any trailing punctuation
                 let tag = word
                     .trim_start_matches('#')
                     .trim_end_matches(|c: char| !c.is_alphanumeric() && c != '_')
@@ -307,7 +254,6 @@ tags:
     }
 
     fn save_notes(&mut self) {
-        // Save hashtag library
         self.hashtag_library.save();
 
         let notes_dir = std::path::PathBuf::from(&self.config.notes_directory);
@@ -316,23 +262,40 @@ tags:
             return;
         }
 
-        // Get start and end times
         let end_time = self.session_end.unwrap_or_else(Local::now);
         let start_time = self.session_start.unwrap_or(end_time);
 
-        // Format filename: MM-DD-YYYY-HH-MM-HH-MM.md (start-end)
         let start_formatted = start_time.format("%m-%d-%Y-%H-%M");
         let end_formatted = end_time.format("%H-%M");
         let filename = format!("{}-{}.md", start_formatted, end_formatted);
         let filepath = notes_dir.join(&filename);
 
-        let frontmatter = self.generate_frontmatter(start_time, end_time);
-        let content = format!("{}{}", frontmatter, self.notes_content);
+        // Generate frontmatter (using local values)
+        let mode_str = match self.mode {
+            TimerMode::Work => "work",
+            TimerMode::Break => "break",
+        };
+        let mut tags = vec!["pomodoro".to_string(), mode_str.to_string()];
+        for tag in self.extract_hashtags(&self.notes_content) {
+            if !tags.contains(&tag) { tags.push(tag); }
+        }
+        let tags_yaml = tags.iter().map(|t| format!("  - {}", t)).collect::<Vec<_>>().join("\n");
 
+        let frontmatter = format!(
+            "---\ntitle: \"Pomodoro Session\"\ndate: {}\nstart_time: {}\nend_time: {}\nduration_minutes: {}\nmode: {}\nsessions_completed: {}\ntags:\n{}\n---\n\n",
+            end_time.format("%Y-%m-%d %H:%M:%S"),
+            start_time.format("%Y-%m-%d %H:%M:%S"),
+            end_time.format("%Y-%m-%d %H:%M:%S"),
+            self.config.work_duration,
+            mode_str,
+            self.sessions_completed,
+            tags_yaml
+        );
+
+        let content = format!("{}{}", frontmatter, self.notes_content);
         if let Err(e) = std::fs::write(&filepath, &content) {
             eprintln!("Failed to save notes: {}", e);
         } else {
-            println!("Notes saved to: {}", filepath.display());
             self.notes_content.clear();
         }
     }
@@ -345,252 +308,93 @@ tags:
         self.t = T::new(self.config.language);
         self.config.slash_commands = self.command_manager.get_commands();
 
-        if let Err(e) = self.config.save() {
-            eprintln!("Failed to save config: {}", e);
-        }
-
-        // Save hashtags
+        let _ = self.config.save();
         self.hashtag_library.save();
 
-        // Reset timer if not running
         if !self.is_running {
             self.remaining_seconds = match self.mode {
                 TimerMode::Work => self.config.work_duration * 60,
                 TimerMode::Break => self.config.break_duration * 60,
             };
         }
-
         self.show_settings = false;
     }
 
+    /// Wrapper for the rounded button component
     fn rounded_button(
         ui: &mut egui::Ui,
         label: &str,
         text_color: egui::Color32,
         bg_color: egui::Color32,
     ) -> egui::Response {
-        ui.add(
-            egui::Button::new(egui::RichText::new(label).color(text_color))
-                .fill(bg_color)
-                .rounding(8.0)
-                .min_size(egui::vec2(70.0, 32.0)),
-        )
+        ui_components::rounded_button(ui, label, text_color, bg_color)
     }
 
+    /// Helper for markdown rendering
     fn render_markdown_preview(&self, ui: &mut egui::Ui) {
-        egui::Frame::group(ui.style())
-            .fill(egui::Color32::from_rgb(0x2a, 0x2a, 0x40))
-            .rounding(egui::Rounding::same(8.0))
-            .inner_margin(egui::Margin::same(10.0))
-            .show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                let mut in_code_block = false;
-
-                for line in self.notes_content.lines() {
-                    // Handle code blocks
-                    if line.trim().starts_with("```") {
-                        in_code_block = !in_code_block;
-                        ui.label(
-                            egui::RichText::new(line)
-                                .monospace()
-                                .color(egui::Color32::from_rgb(0x88, 0x88, 0x88)),
-                        );
-                        continue;
-                    }
-
-                    if in_code_block {
-                        ui.label(
-                            egui::RichText::new(line)
-                                .monospace()
-                                .color(egui::Color32::from_rgb(0xaa, 0xaa, 0xaa)),
-                        );
-                        continue;
-                    }
-
-                    let trimmed = line.trim();
-
-                    if trimmed.starts_with("# ") {
-                        ui.add_space(8.0);
-                        ui.label(
-                            egui::RichText::new(trimmed.strip_prefix("# ").unwrap_or(trimmed))
-                                .size(24.0)
-                                .strong()
-                                .color(egui::Color32::from_rgb(0xee, 0xee, 0xee)),
-                        );
-                        ui.add_space(4.0);
-                    } else if trimmed.starts_with("## ") {
-                        ui.add_space(6.0);
-                        ui.label(
-                            egui::RichText::new(trimmed.strip_prefix("## ").unwrap_or(trimmed))
-                                .size(20.0)
-                                .strong()
-                                .color(egui::Color32::from_rgb(0xee, 0xee, 0xee)),
-                        );
-                        ui.add_space(3.0);
-                    } else if trimmed.starts_with("### ") {
-                        ui.add_space(4.0);
-                        ui.label(
-                            egui::RichText::new(trimmed.strip_prefix("### ").unwrap_or(trimmed))
-                                .size(16.0)
-                                .strong()
-                                .color(egui::Color32::from_rgb(0xee, 0xee, 0xee)),
-                        );
-                        ui.add_space(2.0);
-                    } else if trimmed.starts_with("- ") || trimmed.starts_with("* ") {
-                        let bullet_text = format!(
-                            "• {}",
-                            trimmed
-                                .strip_prefix("- ")
-                                .or_else(|| trimmed.strip_prefix("* "))
-                                .unwrap_or(trimmed)
-                        );
-                        ui.label(
-                            egui::RichText::new(bullet_text)
-                                .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
-                        );
-                    } else if trimmed.starts_with("  - ") || trimmed.starts_with("  * ") {
-                        // Indented list items
-                        let bullet_text = format!(
-                            "  ◦ {}",
-                            trimmed[2..]
-                                .trim()
-                                .strip_prefix("- ")
-                                .or_else(|| trimmed[2..].trim().strip_prefix("* "))
-                                .unwrap_or(trimmed)
-                        );
-                        ui.label(
-                            egui::RichText::new(bullet_text)
-                                .color(egui::Color32::from_rgb(0xaa, 0xaa, 0xaa)),
-                        );
-                    } else if trimmed.starts_with("**") && trimmed.ends_with("**") && trimmed.len() > 4
-                    {
-                        let bold_text = trimmed[2..trimmed.len() - 2].to_string();
-                        ui.label(
-                            egui::RichText::new(bold_text)
-                                .strong()
-                                .color(egui::Color32::from_rgb(0xee, 0xee, 0xee)),
-                        );
-                    } else if trimmed.is_empty() {
-                        // Preserve empty lines as spacing
-                        ui.add_space(6.0);
-                    } else {
-                        // Regular paragraph text - handle inline bold
-                        let text = self.format_inline_markdown(trimmed);
-                        ui.label(
-                            egui::RichText::new(text).color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
-                        );
-                    }
-                }
-                ui.add_space(20.0);
-            });
-    }
-
-    fn format_inline_markdown(&self, text: &str) -> String {
-        // Simple inline formatting - remove markdown syntax for display
-        let mut result = text.to_string();
-
-        // Handle inline code `code`
-        while let Some(start) = result.find('`') {
-            if let Some(end) = result[start + 1..].find('`') {
-                let code = &result[start + 1..start + 1 + end];
-                result = format!(
-                    "{}[{}]{}",
-                    &result[..start],
-                    code,
-                    &result[start + 1 + end + 1..]
-                );
-            } else {
-                break;
-            }
-        }
-
-        // Remove bold markers but keep text
-        result = result.replace("**", "");
-
-        result
+        ui_components::render_markdown_preview(ui, &self.notes_content);
     }
 }
 
+// --- App Trait Implementation ---
+
 impl eframe::App for PomodoroApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Handle Ctrl+P hotkey to toggle Edit/Preview
+        // Essential state updates
+        self.tick();
+        if self.is_running {
+            ctx.request_repaint_after(Duration::from_millis(100));
+        }
+
+        // Global hotkey handling
         if ctx.input(|i| i.key_pressed(egui::Key::P) && i.modifiers.ctrl) && self.notes_enabled {
-            // Format markdown before switching to preview
             if self.notes_view == NotesView::Edit {
                 self.notes_content = format_markdown(&self.notes_content);
             }
             self.notes_view = match self.notes_view {
                 NotesView::Edit => NotesView::Preview,
                 NotesView::Preview => {
-                    self.focus_notes_input = true; // Request focus when switching to Edit
+                    self.focus_notes_input = true;
                     NotesView::Edit
                 }
             };
         }
 
-        // Handle Ctrl+D hotkey to insert date bullet
         if ctx.input(|i| i.key_pressed(egui::Key::D) && i.modifiers.ctrl)
             && self.notes_enabled
             && self.notes_view == NotesView::Edit
         {
             self.notes_content = insert_date_bullet(&self.notes_content);
             self.focus_notes_input = true;
+            self.requested_cursor_pos = Some(19);
         }
 
-        // Handle Ctrl+? (Ctrl+Shift+/) to show help menu
         if ctx.input(|i| i.key_pressed(egui::Key::Slash) && i.modifiers.ctrl && i.modifiers.shift) {
             self.show_help = !self.show_help;
         }
 
-        // Handle Tab key to indent list items
-        if ctx.input(|i| i.key_pressed(egui::Key::Tab))
-            && self.notes_enabled
-            && self.notes_view == NotesView::Edit
-        {
-            // If dropdown is visible, Tab moves selection
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             if self.dropdown_visible {
-                if !self.dropdown_items.is_empty() {
-                    self.dropdown_selected =
-                        (self.dropdown_selected + 1) % self.dropdown_items.len();
-                }
+                self.dropdown_visible = false;
             } else {
-                // Simple approach: if content ends with empty bullet "- " or "* ", indent it
-                let trimmed = self.notes_content.trim_end();
-                if trimmed.ends_with("- ") || trimmed.ends_with("* ") {
-                    // Find the last line and indent it
-                    if let Some(last_newline) = self.notes_content.rfind('\n') {
-                        let before = &self.notes_content[..last_newline + 1];
-                        let after = &self.notes_content[last_newline + 1..];
-                        // Indent by 2 spaces
-                        self.notes_content = format!("{}  {}", before, after);
-                    } else {
-                        // Only one line, indent entire content
-                        self.notes_content = format!("  {}", self.notes_content);
-                    }
-                }
+                self.show_settings = false;
+                self.show_help = false;
+                self.show_survey = false;
+                self.show_survey_summary = false;
             }
         }
 
-        // Handle slash commands and hashtag autocomplete
+        // Autocomplete drop-down logic
         if self.notes_enabled && self.notes_view == NotesView::Edit {
-            // Check for slash command or hashtag at cursor
-            let cursor_pos = self.notes_content.len(); // Simplified: use end of text
-
+            let cursor_pos = self.notes_content.len();
             if !self.dropdown_visible {
-                // Check for slash command
-                if let Some((pos, cmd)) =
-                    CommandManager::find_command_at_cursor(&self.notes_content, cursor_pos)
-                {
+                if let Some((pos, cmd)) = CommandManager::find_command_at_cursor(&self.notes_content, cursor_pos) {
                     self.dropdown_visible = true;
                     self.dropdown_type = DropdownType::Command;
                     self.dropdown_start_pos = pos;
                     self.dropdown_items = self.command_manager.search_commands(&cmd);
                     self.dropdown_selected = 0;
-                }
-                // Check for hashtag
-                else if let Some((pos, tag)) =
-                    HashtagLibrary::find_hashtag_at_cursor(&self.notes_content, cursor_pos)
-                {
+                } else if let Some((pos, tag)) = HashtagLibrary::find_hashtag_at_cursor(&self.notes_content, cursor_pos) {
                     self.dropdown_visible = true;
                     self.dropdown_type = DropdownType::Hashtag;
                     self.dropdown_start_pos = pos;
@@ -598,123 +402,39 @@ impl eframe::App for PomodoroApp {
                     self.dropdown_selected = 0;
                 }
             } else {
-                // Update dropdown based on current text
+                // Update dropdown state as user types
                 match self.dropdown_type {
                     DropdownType::Command => {
-                        if let Some((pos, cmd)) =
-                            CommandManager::find_command_at_cursor(&self.notes_content, cursor_pos)
-                        {
+                        if let Some((pos, cmd)) = CommandManager::find_command_at_cursor(&self.notes_content, cursor_pos) {
                             self.dropdown_start_pos = pos;
                             self.dropdown_items = self.command_manager.search_commands(&cmd);
-                            if self.dropdown_selected >= self.dropdown_items.len() {
-                                self.dropdown_selected = 0;
-                            }
-                        } else {
-                            self.dropdown_visible = false;
-                        }
-                    }
+                        } else { self.dropdown_visible = false; }
+                    },
                     DropdownType::Hashtag => {
-                        if let Some((pos, tag)) =
-                            HashtagLibrary::find_hashtag_at_cursor(&self.notes_content, cursor_pos)
-                        {
+                        if let Some((pos, tag)) = HashtagLibrary::find_hashtag_at_cursor(&self.notes_content, cursor_pos) {
                             self.dropdown_start_pos = pos;
                             self.dropdown_items = self.hashtag_library.search(&tag);
-                            if self.dropdown_selected >= self.dropdown_items.len() {
-                                self.dropdown_selected = 0;
-                            }
-                        } else {
-                            self.dropdown_visible = false;
-                        }
+                        } else { self.dropdown_visible = false; }
                     }
                 }
             }
 
-            // Handle Enter to select dropdown item
-            if self.dropdown_visible
-                && ctx.input(|i| i.key_pressed(egui::Key::Enter))
-                && !self.dropdown_items.is_empty()
-            {
-                let selected_item = self.dropdown_items[self.dropdown_selected].clone();
-                match self.dropdown_type {
-                    DropdownType::Command => {
-                        if let Some(replacement) = self.command_manager.execute(&selected_item) {
-                            let cursor_pos = self.notes_content.len();
-                            self.notes_content = CommandManager::insert_command(
-                                &self.notes_content,
-                                cursor_pos,
-                                self.dropdown_start_pos,
-                                &replacement,
-                            );
-                            self.requested_cursor_pos = Some(self.dropdown_start_pos + replacement.chars().count());
-                        }
-                    }
-                    DropdownType::Hashtag => {
-                        let cursor_pos = self.notes_content.len();
-                        self.notes_content = HashtagLibrary::insert_hashtag(
-                            &self.notes_content,
-                            cursor_pos,
-                            self.dropdown_start_pos,
-                            &selected_item,
-                        );
-                        self.requested_cursor_pos = Some(self.dropdown_start_pos + selected_item.chars().count() + 1); // +1 for the #
-                        // Add to library
-                        self.hashtag_library.add(&selected_item);
-                    }
+            // Keyboard navigation for dropdown
+            if self.dropdown_visible && !self.dropdown_items.is_empty() {
+                if ctx.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
+                    self.dropdown_selected = (self.dropdown_selected + 1) % self.dropdown_items.len();
                 }
-                // Reset dropdown state completely
-                self.dropdown_visible = false;
-                self.dropdown_items.clear();
-                self.dropdown_selected = 0;
-                self.focus_notes_input = true;
-            }
-
-            // Handle Escape to close dropdown or modal/full-screen UI
-            if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-                if self.dropdown_visible {
-                    self.dropdown_visible = false;
-                    self.dropdown_items.clear();
-                    self.dropdown_selected = 0;
-                } else if self.show_settings {
-                    self.show_settings = false;
-                } else if self.show_help {
-                    self.show_help = false;
-                } else if self.show_survey {
-                    self.show_survey = false;
-                } else if self.show_survey_summary {
-                    self.show_survey_summary = false;
+                if ctx.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
+                    self.dropdown_selected = if self.dropdown_selected == 0 { self.dropdown_items.len() - 1 } else { self.dropdown_selected - 1 };
+                }
+                if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    let item = self.dropdown_items[self.dropdown_selected].clone();
+                    self.apply_dropdown_selection(item);
                 }
             }
-
-            // Handle arrow keys for dropdown navigation
-            if self.dropdown_visible && ctx.input(|i| i.key_pressed(egui::Key::ArrowDown))
-                && !self.dropdown_items.is_empty() {
-                    self.dropdown_selected =
-                        (self.dropdown_selected + 1) % self.dropdown_items.len();
-                }
-            if self.dropdown_visible && ctx.input(|i| i.key_pressed(egui::Key::ArrowUp))
-                && !self.dropdown_items.is_empty() {
-                    self.dropdown_selected = if self.dropdown_selected == 0 {
-                        self.dropdown_items.len() - 1
-                    } else {
-                        self.dropdown_selected - 1
-                    };
-                }
         }
 
-        // Extract hashtags from content when saving
-        if !self.notes_content.is_empty() {
-            self.hashtag_library.extract_and_add(&self.notes_content);
-        }
-
-        // Tick the timer
-        self.tick();
-
-        // Request repaint if running for smooth updates
-        if self.is_running {
-            ctx.request_repaint_after(Duration::from_millis(100));
-        }
-
-        // Dark theme colors
+        // Theme Definitions
         let text_color = egui::Color32::from_rgb(0xee, 0xee, 0xee);
         let work_color = egui::Color32::from_rgb(0xe7, 0x4c, 0x3c);
         let break_color = egui::Color32::from_rgb(0x27, 0xae, 0x60);
@@ -723,1170 +443,391 @@ impl eframe::App for PomodoroApp {
         let tab_active_color = egui::Color32::from_rgb(0x27, 0xae, 0x60);
         let tab_inactive_color = egui::Color32::from_rgb(0x0f, 0x34, 0x60);
 
-        // Set dark background
         ctx.set_visuals(egui::Visuals {
             window_fill: bg_color,
             panel_fill: bg_color,
             ..Default::default()
         });
 
+        // Main UI Layout
         egui::CentralPanel::default().show(ctx, |ui| {
             if self.notes_enabled {
-                // Two-column layout when notes are enabled
                 ui.horizontal(|ui| {
-                    // Left column: Timer
-                    ui.vertical(|ui| {
-                        ui.set_min_width(200.0);
-                        ui.add_space(30.0);
-
-                        // Timer display
-                        ui.label(
-                            egui::RichText::new(self.format_time())
-                                .size(48.0)
-                                .color(text_color),
-                        );
-
-                        ui.add_space(10.0);
-
-                        // Mode label
-                        let (mode_label, mode_color) = match self.mode {
-                            TimerMode::Work => (self.t.timer_work(), work_color),
-                            TimerMode::Break => (self.t.timer_break(), break_color),
-                        };
-                        ui.label(egui::RichText::new(mode_label).size(20.0).color(mode_color));
-
-                        ui.add_space(20.0);
-
-                        // Control buttons
-                        ui.horizontal(|ui| {
-                            ui.add_space(10.0);
-
-                            let button_label = if self.is_running { self.t.pause_button() } else { self.t.start_button() };
-                            if Self::rounded_button(ui, &button_label, text_color, button_color)
-                                .clicked()
-                            {
-                                self.toggle_timer();
-                            }
-
-                            ui.add_space(8.0);
-
-                            if Self::rounded_button(ui, &self.t.reset_button(), text_color, button_color).clicked()
-                            {
-                                self.reset_timer();
-                            }
-
-                            ui.add_space(8.0);
-
-                            if Self::rounded_button(ui, &self.t.button_skip().to_uppercase(), text_color, button_color).clicked()
-                            {
-                                self.skip_to_break();
-                            }
-
-                            ui.add_space(10.0);
-                        });
-
-                        ui.add_space(20.0);
-
-                        // Settings button
-                        if ui
-                            .add(
-                                egui::Button::new(
-                                    egui::RichText::new(self.t.settings_btn()).color(text_color),
-                                )
-                                .fill(button_color)
-                                .rounding(8.0),
-                            )
-                            .clicked()
-                        {
-                            self.temp_work_duration = self.config.work_duration;
-                            self.temp_break_duration = self.config.break_duration;
-                            self.temp_notes_directory = self.config.notes_directory.clone();
-                            self.show_settings = true;
-                        }
-
-                        // Survey summary button
-                        if ui
-                            .add(
-                                egui::Button::new(
-                                    egui::RichText::new(self.t.survey_summary_title()).color(text_color),
-                                )
-                                .fill(button_color)
-                                .rounding(8.0),
-                            )
-                            .clicked()
-                        {
-                            self.show_survey_summary = true;
-                        }
-
-                        // Notes toggle (in timer column)
-                        ui.add_space(15.0);
-                        if ui
-                            .add(
-                                egui::Button::new(egui::RichText::new(if self.notes_enabled {
-                                    self.t.notes_on()
-                                } else {
-                                    self.t.notes_off()
-                                }).color(text_color))
-                                .fill(button_color)
-                                .rounding(8.0),
-                            )
-                            .clicked()
-                        {
-                            self.notes_enabled = !self.notes_enabled;
-                            self.config.notes_enabled = self.notes_enabled;
-                            let _ = self.config.save();
-                        }
-
-                        // Save notes button
-                        if self.notes_enabled && !self.notes_content.is_empty() {
-                            ui.add_space(10.0);
-                            if ui
-                                .add(
-                                    egui::Button::new(egui::RichText::new(self.t.save_notes_btn()).color(text_color))
-                                    .fill(egui::Color32::from_rgb(0x27, 0xae, 0x60))
-                                    .rounding(8.0),
-                                )
-                                .clicked()
-                            {
-                                self.save_notes();
-                            }
-                        }
-
-                        // Help toggle
-                        ui.add_space(10.0);
-                        if ui
-                            .add(
-                                egui::Button::new(egui::RichText::new(self.t.help_button()).color(text_color))
-                                    .fill(button_color)
-                                    .rounding(8.0),
-                            )
-                            .clicked()
-                        {
-                            self.show_help = !self.show_help;
-                        }
-
-                        // Session counter
-                        ui.add_space(10.0);
-                        ui.label(
-                            egui::RichText::new(self.t.sessions_completed_label(self.sessions_completed))
-                                .size(12.0)
-                                .color(egui::Color32::from_rgb(0x88, 0x88, 0x88)),
-                        );
-
-                        // Hotkey hint
-                        ui.add_space(5.0);
-                        ui.label(
-                            egui::RichText::new(self.t.toggle_preview_hover())
-                                .size(10.0)
-                                .color(egui::Color32::from_rgb(0x66, 0x66, 0x66)),
-                        );
-                    });
-
+                    self.render_timer_column(ui, text_color, button_color, work_color, break_color);
                     ui.add_space(20.0);
-
-                    // Right column: Notes editor
-                    ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
-                        // Tab buttons
-                        ui.horizontal(|ui| {
-                            let edit_color = if self.notes_view == NotesView::Edit {
-                                tab_active_color
-                            } else {
-                                tab_inactive_color
-                            };
-                            let preview_color = if self.notes_view == NotesView::Preview {
-                                tab_active_color
-                            } else {
-                                tab_inactive_color
-                            };
-
-                            if ui
-                                .add(
-                                    egui::Button::new(
-                                        egui::RichText::new(self.t.edit_tab()).size(12.0).color(text_color),
-                                    )
-                                    .fill(edit_color)
-                                    .rounding(4.0)
-                                    .min_size(egui::vec2(50.0, 20.0)),
-                            )
-                            .clicked()
-                        {
-                            self.notes_view = NotesView::Edit;
-                            self.focus_notes_input = true; // Request focus when clicking Edit tab
-                        }
-
-                        if ui
-                            .add(
-                                egui::Button::new(
-                                    egui::RichText::new(self.t.preview_tab()).size(12.0).color(text_color),
-                                )
-                                .fill(preview_color)
-                                .rounding(4.0)
-                                .min_size(egui::vec2(60.0, 20.0)),
-                                )
-                                .clicked()
-                            {
-                                self.notes_view = NotesView::Preview;
-                            }
-                        });
-
-                        ui.add_space(5.0);
-
-                        match self.notes_view {
-                            NotesView::Edit => {
-                                // Request focus at the beginning of the frame if flag is set
-                                if self.focus_notes_input {
-                                    ctx.memory_mut(|mem| {
-                                        mem.request_focus(egui::Id::new("notes_text_input"))
-                                    });
-                                    self.focus_notes_input = false;
-                                }
-
-                                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                                    let output = ui.add(
-                                        egui::TextEdit::multiline(&mut self.notes_content)
-                                            .id(egui::Id::new("notes_text_input"))
-                                            .desired_width(f32::INFINITY) // Use all available width
-                                            .desired_rows(20)
-                                            .font(egui::TextStyle::Monospace),
-                                    );
-
-                                    // Handle cursor position request
-                                    if let Some(pos) = self.requested_cursor_pos.take() {
-                                        if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), output.id) {
-                                            let ccursor = egui::text::CCursor::new(pos);
-                                            state.cursor.set_char_range(Some(egui::text::CCursorRange::one(ccursor)));
-                                            state.store(ui.ctx(), output.id);
-                                        }
-                                    }
-                                });
-
-                                // Show autocomplete dropdown as a floating panel above text area
-                                if self.dropdown_visible && !self.dropdown_items.is_empty() {
-                                    egui::Area::new(egui::Id::new("autocomplete_dropdown"))
-                                        .pivot(egui::Align2::LEFT_TOP)
-                                        .interactable(true)
-                                        .order(egui::Order::Foreground)
-                                        .show(ui.ctx(), |ui| {
-                                            egui::Frame::popup(ui.style())
-                                                .fill(egui::Color32::from_rgb(0x2a, 0x2a, 0x3e))
-                                                .show(ui, |ui| {
-                                                    ui.set_min_width(200.0);
-                                                    ui.set_max_width(300.0);
-                                                    ui.label(
-                                                        egui::RichText::new(
-                                                            if self.dropdown_type == DropdownType::Command {
-                                                                self.t.autocomplete_commands()
-                                                            } else {
-                                                                self.t.autocomplete_hashtags()
-                                                            },
-                                                        )
-                                                        .weak()
-                                                        .size(10.0),
-                                                    );
-                                                    ui.add_space(2.0);
-                                                    egui::ScrollArea::vertical()
-                                                        .max_height(150.0)
-                                                        .show(ui, |ui| {
-                                                            let mut selected_action: Option<(DropdownType, String)> = None;
-                                                            for (i, item) in self.dropdown_items.iter().enumerate() {
-                                                                let is_selected = i == self.dropdown_selected;
-                                                                let text = if self.dropdown_type == DropdownType::Hashtag {
-                                                                    format!("#{}", item)
-                                                                } else {
-                                                                    format!("/{}", item)
-                                                                };
-
-                                                                let response = ui.selectable_label(is_selected, &text);
-                                                                if response.clicked() {
-                                                                    selected_action = Some((self.dropdown_type.clone(), item.clone()));
-                                                                }
-                                                            }
-                                                            
-                                                            // Apply selection after the loop to avoid borrow issues
-                                                            if let Some((dtype, selected_item)) = selected_action {
-                                                                match dtype {
-                                                                    DropdownType::Command => {
-                                                                        if let Some(replacement) = self.command_manager.execute(&selected_item) {
-                                                                            let cursor_pos = self.notes_content.len();
-                                                                            self.notes_content = CommandManager::insert_command(
-                                                                                &self.notes_content,
-                                                                                cursor_pos,
-                                                                                self.dropdown_start_pos,
-                                                                                &replacement,
-                                                                            );
-                                                                            self.requested_cursor_pos = Some(self.dropdown_start_pos + replacement.chars().count());
-                                                                        }
-                                                                    }
-                                                                    DropdownType::Hashtag => {
-                                                                        let cursor_pos = self.notes_content.len();
-                                                                        self.notes_content = HashtagLibrary::insert_hashtag(
-                                                                            &self.notes_content,
-                                                                            cursor_pos,
-                                                                            self.dropdown_start_pos,
-                                                                            &selected_item,
-                                                                        );
-                                                                        self.requested_cursor_pos = Some(self.dropdown_start_pos + selected_item.chars().count() + 1);
-                                                                        self.hashtag_library.add(&selected_item);
-                                                                    }
-                                                                }
-                                                                self.dropdown_visible = false;
-                                                                self.dropdown_items.clear();
-                                                                self.focus_notes_input = true;
-                                                            }
-                                                        });
-                                                });
-                                        });
-                                }
-                            }
-                            NotesView::Preview => {
-                                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                                    self.render_markdown_preview(ui);
-                                });
-                            }
-                        }
-                    });
+                    self.render_notes_column(ctx, ui, text_color, tab_active_color, tab_inactive_color);
                 });
             } else {
-                // Original layout when notes are disabled
-                ui.vertical_centered(|ui| {
-                    ui.add_space(60.0);
-
-                    // Timer display
-                    ui.label(
-                        egui::RichText::new(self.format_time())
-                            .size(48.0)
-                            .color(text_color),
-                    );
-
-                    ui.add_space(10.0);
-
-                    // Mode label
-                    let (mode_label, mode_color) = match self.mode {
-                        TimerMode::Work => (self.t.timer_work(), work_color),
-                        TimerMode::Break => (self.t.timer_break(), break_color),
-                    };
-                    ui.label(egui::RichText::new(mode_label).size(20.0).color(mode_color));
-
-                    ui.add_space(30.0);
-
-                    // Control buttons - centered with spacing
-                    ui.horizontal(|ui| {
-                        ui.add_space(20.0);
-
-                        let button_label = if self.is_running { self.t.pause_button() } else { self.t.start_button() };
-                        if Self::rounded_button(ui, &button_label, text_color, button_color)
-                            .clicked()
-                        {
-                            self.toggle_timer();
-                        }
-
-                        ui.add_space(10.0);
-
-                        if Self::rounded_button(ui, &self.t.reset_button(), text_color, button_color).clicked() {
-                            self.reset_timer();
-                        }
-
-                        ui.add_space(10.0);
-
-                        if Self::rounded_button(ui, &self.t.button_skip().to_uppercase(), text_color, button_color).clicked() {
-                            self.skip_to_break();
-                        }
-
-                        ui.add_space(20.0);
-                    });
-
-                    ui.add_space(40.0);
-
-                    // Settings button
-                    if ui
-                        .add(
-                            egui::Button::new(egui::RichText::new(self.t.settings_btn()).color(text_color))
-                                .fill(button_color)
-                                .rounding(8.0),
-                        )
-                        .clicked()
-                    {
-                        self.temp_work_duration = self.config.work_duration;
-                        self.temp_break_duration = self.config.break_duration;
-                        self.temp_notes_directory = self.config.notes_directory.clone();
-                        self.show_settings = true;
-                    }
-
-                    // Survey summary button
-                    if ui
-                        .add(
-                            egui::Button::new(
-                                egui::RichText::new(self.t.survey_summary_title()).color(text_color),
-                            )
-                            .fill(button_color)
-                            .rounding(8.0),
-                        )
-                        .clicked()
-                    {
-                        self.show_survey_summary = true;
-                    }
-
-                    ui.add_space(10.0);
-
-                    // Notes toggle
-                    if ui
-                        .add(
-                            egui::Button::new(egui::RichText::new(if self.notes_enabled {
-                                self.t.notes_on()
-                            } else {
-                                self.t.notes_off()
-                            }).color(text_color))
-                                .fill(button_color)
-                                .rounding(8.0),
-                        )
-                        .clicked()
-                    {
-                        self.notes_enabled = !self.notes_enabled;
-                        self.config.notes_enabled = self.notes_enabled;
-                        let _ = self.config.save();
-                    }
-
-                        // Session counter
-                        ui.add_space(10.0);
-                        ui.label(
-                            egui::RichText::new(self.t.sessions_completed_label(self.sessions_completed))
-                                .size(12.0)
-                                .color(egui::Color32::from_rgb(0x88, 0x88, 0x88)),
-                        );
-
-                    // Help button
-                    ui.add_space(10.0);
-                    if ui
-                        .add(
-                            egui::Button::new(
-                                egui::RichText::new(self.t.help_button()).color(text_color),
-                            )
-                            .fill(button_color)
-                            .rounding(8.0),
-                        )
-                        .clicked()
-                    {
-                        self.show_help = true;
-                    }
-
-                    // TODO list section
-                    ui.add_space(15.0);
-                    ui.vertical(|ui| {
-                        ui.add_space(20.0);
-                        ui.label(egui::RichText::new(self.t.todo_title())
-                            .size(24.0)
-                            .color(text_color)
-                            .strong());
-                        ui.add_space(10.0);
-
-                        // Add TODO input
-                    let incomplete = self.todo_list.incomplete_count();
-                    let completed = self.todo_list.completed_count();
-                    ui.label(
-                        egui::RichText::new(self.t.todo_status(incomplete, completed))
-                            .size(11.0)
-                            .color(egui::Color32::from_rgb(0x88, 0x88, 0x88)),
-                    );
-                    
-                    ui.add_space(5.0);
-                    
-                        // Add TODO input
-                        ui.horizontal(|ui| {
-                            let response = ui.add(
-                                egui::TextEdit::singleline(&mut self.todo_input)
-                                    .hint_text(self.t.todo_hint())
-                                    .desired_width(280.0),
-                            );
-                            if (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
-                                && !self.todo_input.trim().is_empty()
-                            {
-                                self.todo_list.add(self.todo_input.trim().to_string());
-                                self.todo_input.clear();
-                                self.todo_list.save();
-                            }
-                        });
-                    });
-                    
-                    // TODO list
-                    ui.add_space(5.0);
-                    egui::ScrollArea::vertical()
-                        .max_height(150.0)
-                        .show(ui, |ui| {
-                            let mut to_remove = None;
-                            let mut to_toggle = None;
-                            
-                            for item in self.todo_list.items.iter_mut() {
-                                ui.horizontal(|ui| {
-                                    let checkbox = ui.checkbox(&mut item.completed, "");
-                                    if checkbox.clicked() {
-                                        to_toggle = Some(item.id);
-                                    }
-                                    
-                                    let text_color = if item.completed {
-                                        egui::Color32::from_rgb(0x88, 0x88, 0x88)
-                                    } else {
-                                        text_color
-                                    };
-                                    
-                                    let text = if item.completed {
-                                        egui::RichText::new(&item.text)
-                                            .strikethrough()
-                                            .color(text_color)
-                                    } else {
-                                        egui::RichText::new(&item.text).color(text_color)
-                                    };
-                                    
-                                    ui.label(text);
-                                    
-                                    if ui.add(egui::Button::new("❌").fill(button_color).small()).clicked() {
-                                        to_remove = Some(item.id);
-                                    }
-                                });
-                            }
-                            
-                            if let Some(id) = to_toggle {
-                                self.todo_list.toggle(id);
-                                self.todo_list.save();
-                            }
-                            
-                            if let Some(id) = to_remove {
-                                self.todo_list.remove(id);
-                                self.todo_list.save();
-                            }
-                        });
-                    
-                    // Clear completed button
-                    let completed = self.todo_list.completed_count();
-                    if completed > 0 {
-                        ui.add_space(10.0);
-                        if ui
-                            .add(
-                                egui::Button::new(
-                                    egui::RichText::new(self.t.todo_clear_completed_btn()).color(text_color),
-                                )
-                                .fill(button_color)
-                                .rounding(8.0),
-                            )
-                            .clicked()
-                        {
-                            self.todo_list.clear_completed();
-                            self.todo_list.save();
-                        }
-                    }
-                });
+                self.render_pure_timer_layout(ui, text_color, button_color, work_color, break_color);
             }
         });
 
-        // Settings panel - full window
-        if self.show_settings {
-            egui::CentralPanel::default().show(ctx, |ui| {
-                ui.vertical_centered(|ui| {
-                    ui.add_space(20.0);
+        // Full-screen / Modal windows
+        self.show_settings_dialog(ctx, text_color, button_color);
+        self.show_help_dialog(ctx, text_color, button_color);
+        self.show_survey_dialog(ctx, text_color, button_color);
+        self.show_survey_summary_dialog(ctx, text_color, button_color);
+    }
+}
 
-                    ui.label(
-                        egui::RichText::new(format!("⚙ {}", self.t.settings_title()))
-                            .size(28.0)
-                            .color(text_color)
-                            .strong(),
+// --- Extended Methods Implementation ---
+
+impl PomodoroApp {
+    fn apply_dropdown_selection(&mut self, selected_item: String) {
+        match self.dropdown_type {
+            DropdownType::Command => {
+                if let Some(replacement) = self.command_manager.execute(&selected_item) {
+                    let cursor_pos = self.notes_content.len();
+                    self.notes_content = CommandManager::insert_command(
+                        &self.notes_content, cursor_pos, self.dropdown_start_pos, &replacement,
                     );
-
-                    ui.add_space(30.0);
-
-                    // Work duration
-                    ui.horizontal(|ui| {
-                        ui.add_space(40.0);
-                        ui.label(
-                            egui::RichText::new(format!(
-                                "{} {} min",
-                                self.t.work_duration(),
-                                self.temp_work_duration
-                            ))
-                            .size(18.0)
-                            .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
-                        );
-                        ui.add_space(20.0);
-                        if ui
-                            .add(
-                                egui::Button::new("-")
-                                    .fill(button_color)
-                                    .rounding(6.0)
-                                    .min_size(egui::vec2(40.0, 30.0)),
-                            )
-                            .clicked()
-                        {
-                            self.temp_work_duration =
-                                self.temp_work_duration.saturating_sub(1).max(1);
-                        }
-                        ui.add_space(5.0);
-                        if ui
-                            .add(
-                                egui::Button::new("+")
-                                    .fill(button_color)
-                                    .rounding(6.0)
-                                    .min_size(egui::vec2(40.0, 30.0)),
-                            )
-                            .clicked()
-                        {
-                            self.temp_work_duration =
-                                self.temp_work_duration.saturating_add(1).min(60);
-                        }
-                    });
-
-                    ui.add_space(15.0);
-
-                    // Break duration
-                    ui.horizontal(|ui| {
-                        ui.add_space(40.0);
-                        ui.label(
-                            egui::RichText::new(format!(
-                                "{} {} min",
-                                self.t.break_duration(),
-                                self.temp_break_duration
-                            ))
-                            .size(18.0)
-                            .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
-                        );
-                        ui.add_space(15.0);
-                        if ui
-                            .add(
-                                egui::Button::new("-")
-                                    .fill(button_color)
-                                    .rounding(6.0)
-                                    .min_size(egui::vec2(40.0, 30.0)),
-                            )
-                            .clicked()
-                        {
-                            self.temp_break_duration =
-                                self.temp_break_duration.saturating_sub(1).max(1);
-                        }
-                        ui.add_space(5.0);
-                        if ui
-                            .add(
-                                egui::Button::new("+")
-                                    .fill(button_color)
-                                    .rounding(6.0)
-                                    .min_size(egui::vec2(40.0, 30.0)),
-                            )
-                            .clicked()
-                        {
-                            self.temp_break_duration =
-                                self.temp_break_duration.saturating_add(1).min(30);
-                        }
-                    });
-
-                    ui.add_space(20.0);
-
-                    // Notes directory
-                    ui.horizontal(|ui| {
-                        ui.add_space(40.0);
-                        ui.label(
-                            egui::RichText::new(self.t.notes_directory())
-                                .size(16.0)
-                                .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
-                        );
-                    });
-                    ui.horizontal(|ui| {
-                        ui.add_space(40.0);
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.temp_notes_directory)
-                                .desired_width(350.0),
-                        );
-                    });
-
-                    ui.add_space(20.0);
-
-                    // Survey toggle
-                    ui.horizontal(|ui| {
-                        ui.add_space(40.0);
-                        if ui
-                            .add(
-                                egui::Button::new(
-                                    egui::RichText::new(if self.config.survey_enabled {
-                                        self.t.surveys_on()
-                                    } else {
-                                        self.t.surveys_off()
-                                    })
-                                        .size(16.0)
-                                        .color(text_color),
-                                )
-                                .fill(button_color)
-                                .rounding(6.0),
-                            )
-                            .clicked()
-                        {
-                            self.config.survey_enabled = !self.config.survey_enabled;
-                            let _ = self.config.save();
-                        }
-                    });
-
-                    ui.add_space(15.0);
-
-                    // Reset survey data button
-                    ui.horizontal(|ui| {
-                        ui.add_space(40.0);
-                        if ui
-                            .add(
-                                egui::Button::new(
-                                    egui::RichText::new(self.t.reset_survey_data_btn())
-                                        .size(14.0)
-                                        .color(egui::Color32::from_rgb(0xe7, 0x4c, 0x3c)),
-                                )
-                                .fill(button_color)
-                                .rounding(6.0),
-                            )
-                            .clicked()
-                        {
-                            self.reset_survey_data();
-                        }
-                    });
-
-                    ui.add_space(20.0);
-
-                    // Language selection
-                    ui.horizontal(|ui| {
-                        ui.add_space(40.0);
-                        ui.label(
-                            egui::RichText::new(self.t.language_setting())
-                                .size(18.0)
-                                .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
-                        );
-                        ui.add_space(10.0);
-                        egui::ComboBox::from_label("")
-                            .selected_text(match self.temp_language {
-                                Language::English => self.t.lang_en(),
-                                Language::German => self.t.lang_de(),
-                            })
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut self.temp_language, Language::English, self.t.lang_en());
-                                ui.selectable_value(&mut self.temp_language, Language::German, self.t.lang_de());
-                            });
-                    });
-
-                    ui.add_space(40.0);
-
-                    // Dialog buttons
-                    ui.horizontal(|ui| {
-                        ui.add_space(40.0);
-                        if ui
-                            .add(
-                                egui::Button::new(self.t.button_cancel())
-                                    .fill(button_color)
-                                    .rounding(8.0)
-                                    .min_size(egui::vec2(100.0, 35.0)),
-                            )
-                            .clicked()
-                        {
-                            self.show_settings = false;
-                            // Reset temp values
-                            self.temp_work_duration = self.config.work_duration;
-                            self.temp_break_duration = self.config.break_duration;
-                            self.temp_notes_directory = self.config.notes_directory.clone();
-                            self.temp_language = self.config.language;
-                        }
-                        ui.add_space(15.0);
-                        if ui
-                            .add(
-                                egui::Button::new(self.t.button_save())
-                                    .fill(egui::Color32::from_rgb(0x27, 0xae, 0x60))
-                                    .rounding(8.0)
-                                    .min_size(egui::vec2(100.0, 35.0)),
-                            )
-                            .clicked()
-                        {
-                            self.save_settings();
-                            self.show_settings = false;
-                        }
-                    });
-                });
-            });
+                    self.requested_cursor_pos = Some(self.dropdown_start_pos + replacement.chars().count());
+                }
+            }
+            DropdownType::Hashtag => {
+                let cursor_pos = self.notes_content.len();
+                self.notes_content = HashtagLibrary::insert_hashtag(
+                    &self.notes_content, cursor_pos, self.dropdown_start_pos, &selected_item,
+                );
+                self.requested_cursor_pos = Some(self.dropdown_start_pos + selected_item.chars().count() + 1);
+                self.hashtag_library.add(&selected_item);
+            }
         }
+        self.dropdown_visible = false;
+        self.dropdown_items.clear();
+        self.focus_notes_input = true;
+    }
 
-        // Survey dialog
-        if self.show_survey {
-            egui::Window::new(format!("{} 🎉", self.t.survey_complete_title()))
-                .collapsible(false)
-                .resizable(false)
-                .constrain(false)
-                .show(ctx, |ui| {
-                    ui.set_min_width(400.0);
+    fn render_timer_column(&mut self, ui: &mut egui::Ui, text_color: egui::Color32, button_color: egui::Color32, work_color: egui::Color32, break_color: egui::Color32) {
+        ui.vertical(|ui| {
+            ui.set_min_width(200.0);
+            ui.add_space(30.0);
+            ui.label(egui::RichText::new(self.format_time()).size(48.0).color(text_color));
+            ui.add_space(10.0);
 
-                    ui.label(
-                        egui::RichText::new(self.t.survey_question_focus())
-                            .size(16.0)
-                            .color(text_color),
-                    );
+            let (mode_label, mode_color) = match self.mode {
+                TimerMode::Work => (self.t.timer_work(), work_color),
+                TimerMode::Break => (self.t.timer_break(), break_color),
+            };
+            ui.label(egui::RichText::new(mode_label).size(20.0).color(mode_color));
+            ui.add_space(20.0);
 
-                    ui.add_space(15.0);
+            ui.horizontal(|ui| {
+                ui.add_space(10.0);
+                let label = if self.is_running { self.t.pause_button() } else { self.t.start_button() };
+                if Self::rounded_button(ui, &label, text_color, button_color).clicked() { self.toggle_timer(); }
+                ui.add_space(8.0);
+                if Self::rounded_button(ui, &self.t.reset_button(), text_color, button_color).clicked() { self.reset_timer(); }
+                ui.add_space(8.0);
+                if Self::rounded_button(ui, &self.t.button_skip().to_uppercase(), text_color, button_color).clicked() { self.skip_to_break(); }
+            });
 
-                    // Focus rating
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            egui::RichText::new(self.t.survey_rating_label(self.survey_focus_rating))
-                            .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
-                        );
+            ui.add_space(20.0);
+            if ui.add(egui::Button::new(egui::RichText::new(self.t.settings_btn()).color(text_color)).fill(button_color).rounding(8.0)).clicked() {
+                self.temp_work_duration = self.config.work_duration;
+                self.temp_break_duration = self.config.break_duration;
+                self.temp_notes_directory = self.config.notes_directory.clone();
+                self.show_settings = true;
+            }
+            if ui.add(egui::Button::new(egui::RichText::new(self.t.survey_summary_title()).color(text_color)).fill(button_color).rounding(8.0)).clicked() {
+                self.show_survey_summary = true;
+            }
 
-                        if ui
-                            .add(egui::Button::new("-").fill(button_color).rounding(6.0))
-                            .clicked()
-                        {
-                            self.survey_focus_rating =
-                                self.survey_focus_rating.saturating_sub(1).max(1);
-                        }
-                        if ui
-                            .add(egui::Button::new("+").fill(button_color).rounding(6.0))
-                            .clicked()
-                        {
-                            self.survey_focus_rating =
-                                self.survey_focus_rating.saturating_add(1).min(10);
-                        }
-                    });
+            ui.add_space(15.0);
+            if ui.add(egui::Button::new(egui::RichText::new(if self.notes_enabled { self.t.notes_on() } else { self.t.notes_off() }).color(text_color)).fill(button_color).rounding(8.0)).clicked() {
+                self.notes_enabled = !self.notes_enabled;
+                self.config.notes_enabled = self.notes_enabled;
+                let _ = self.config.save();
+            }
 
-                    ui.add_space(15.0);
+            if self.notes_enabled && !self.notes_content.is_empty() {
+                ui.add_space(10.0);
+                if ui.add(egui::Button::new(egui::RichText::new(self.t.save_notes_btn()).color(text_color)).fill(egui::Color32::from_rgb(0x27, 0xae, 0x60)).rounding(8.0)).clicked() {
+                    self.save_notes();
+                }
+            }
 
-                    // What helped
-                    ui.label(
-                        egui::RichText::new(self.t.survey_question_helped())
-                            .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
-                    );
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.survey_what_helped)
-                            .desired_width(350.0)
-                            .hint_text(self.t.helped_hint()),
-                    );
+            ui.add_space(10.0);
+            if ui.add(egui::Button::new(egui::RichText::new(self.t.help_button()).color(text_color)).fill(button_color).rounding(8.0)).clicked() {
+                self.show_help = !self.show_help;
+            }
 
-                    ui.add_space(10.0);
+            ui.add_space(10.0);
+            ui.label(egui::RichText::new(self.t.sessions_completed_label(self.sessions_completed)).size(12.0).color(egui::Color32::from_rgb(0x88, 0x88, 0x88)));
+            ui_components::render_todo_panel(ui, &mut self.todo_list, &mut self.todo_input, &self.t, text_color, button_color);
+        });
+    }
 
-                    // What hurt
-                    ui.label(
-                        egui::RichText::new(self.t.survey_question_hurt())
-                            .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
-                    );
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.survey_what_hurt)
-                            .desired_width(350.0)
-                            .hint_text(self.t.hurt_hint()),
-                    );
+    fn render_notes_column(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, text_color: egui::Color32, active_color: egui::Color32, inactive_color: egui::Color32) {
+        ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
+            ui.horizontal(|ui| {
+                let edit_color = if self.notes_view == NotesView::Edit { active_color } else { inactive_color };
+                let preview_color = if self.notes_view == NotesView::Preview { active_color } else { inactive_color };
+                if ui.add(egui::Button::new(egui::RichText::new(self.t.edit_tab()).size(12.0).color(text_color)).fill(edit_color).rounding(4.0)).clicked() {
+                    self.notes_view = NotesView::Edit;
+                    self.focus_notes_input = true;
+                }
+                if ui.add(egui::Button::new(egui::RichText::new(self.t.preview_tab()).size(12.0).color(text_color)).fill(preview_color).rounding(4.0)).clicked() {
+                    self.notes_view = NotesView::Preview;
+                }
+            });
 
-                    ui.add_space(20.0);
-
-                    // Show stats if available
-                    if self.survey_data.focus_count > 0 {
-                        ui.separator();
-                        ui.add_space(5.0);
-                        ui.label(
-                            egui::RichText::new(self.t.avg_focus_today(self.survey_data.average_focus_today))
-                            .size(12.0)
-                            .color(egui::Color32::from_rgb(0x88, 0x88, 0x88)),
-                        );
-                        ui.label(
-                            egui::RichText::new(self.t.avg_focus_overall(self.survey_data.average_focus))
-                            .size(12.0)
-                            .color(egui::Color32::from_rgb(0x88, 0x88, 0x88)),
-                        );
-                        ui.add_space(10.0);
+            ui.add_space(5.0);
+            match self.notes_view {
+                NotesView::Edit => {
+                    if self.focus_notes_input {
+                        ctx.memory_mut(|mem| mem.request_focus(egui::Id::new("notes_text_input")));
+                        self.focus_notes_input = false;
                     }
-
-                    // Dialog buttons
-                    ui.horizontal(|ui| {
-                        if ui
-                            .add(egui::Button::new(self.t.button_skip()).fill(button_color).rounding(6.0))
-                            .clicked()
-                        {
-                            self.skip_survey();
-                        }
-                        if ui
-                            .add(
-                                egui::Button::new(self.t.button_submit())
-                                    .fill(egui::Color32::from_rgb(0x27, 0xae, 0x60))
-                                    .rounding(6.0),
-                            )
-                            .clicked()
-                        {
-                            self.submit_survey();
+                    egui::ScrollArea::vertical()
+                        .id_salt("notes_edit_scroll")
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                        let output = ui.add(egui::TextEdit::multiline(&mut self.notes_content).id(egui::Id::new("notes_text_input")).desired_width(f32::INFINITY).desired_rows(20).font(egui::TextStyle::Monospace));
+                        if let Some(pos) = self.requested_cursor_pos.take() {
+                            if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), output.id) {
+                                state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(pos))));
+                                state.store(ui.ctx(), output.id);
+                            }
                         }
                     });
-                });
-        }
-
-        // Survey Summary - full window
-        if self.show_survey_summary {
-            egui::CentralPanel::default().show(ctx, |ui| {
-                ui.vertical_centered(|ui| {
-                    ui.add_space(20.0);
-                    ui.label(
-                        egui::RichText::new(self.t.survey_summary_title())
-                            .size(28.0)
-                            .color(text_color)
-                            .strong(),
-                    );
-                    ui.add_space(20.0);
-                });
-
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    ui.vertical_centered(|ui| {
-                        ui.set_max_width(500.0);
-
-                        if self.survey_data.focus_count == 0 {
-                            ui.label(
-                                egui::RichText::new(self.t.no_survey_data())
-                                    .size(16.0)
-                                    .color(egui::Color32::from_rgb(0xaa, 0xaa, 0xaa)));
-                            ui.add_space(10.0);
-                            ui.label(egui::RichText::new(self.t.complete_session_prompt())
-                                .size(12.0)
-                                .color(egui::Color32::from_rgb(0x88, 0x88, 0x88)));
-                        } else {
-                            // Focus ratings section
-                            ui.vertical(|ui| {
-                                ui.label(
-                                    egui::RichText::new(self.t.focus_ratings())
-                                        .size(16.0)
-                                        .strong()
-                                        .color(text_color),
-                                );
-                                ui.add_space(8.0);
-
-                                ui.horizontal(|ui| {
-                                    ui.label(
-                                        egui::RichText::new(self.t.todays_average())
-                                            .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
-                                    );
-                                    ui.label(
-                                        egui::RichText::new(format!(
-                                            "{:.1}/10",
-                                            self.survey_data.average_focus_today
-                                        ))
-                                        .strong()
-                                        .color(egui::Color32::from_rgb(0x27, 0xae, 0x60)),
-                                    );
-                                });
-
-                                ui.horizontal(|ui| {
-                                    ui.label(
-                                        egui::RichText::new(self.t.overall_average())
-                                            .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
-                                    );
-                                    ui.label(
-                                        egui::RichText::new(format!(
-                                            "{:.1}/10",
-                                            self.survey_data.average_focus
-                                        ))
-                                        .strong()
-                                        .color(egui::Color32::from_rgb(0x27, 0xae, 0x60)),
-                                    );
-                                });
-
-                                ui.horizontal(|ui| {
-                                    ui.label(
-                                        egui::RichText::new(self.t.total_sessions())
-                                            .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
-                                    );
-                                    ui.label(
-                                        egui::RichText::new(format!("{}", self.survey_data.focus_count))
-                                            .strong()
-                                            .color(text_color),
-                                    );
-                                });
-                            });
-
-                            ui.add_space(30.0);
-
-                            // What helped section
-                            if !self.survey_data.what_helped.is_empty() {
-                                ui.vertical(|ui| {
-                                    ui.label(
-                                        egui::RichText::new(self.t.how_helped())
-                                            .size(16.0)
-                                            .strong()
-                                            .color(egui::Color32::from_rgb(0x27, 0xae, 0x60)),
-                                    );
-                                    ui.add_space(5.0);
-                                    for item in &self.survey_data.what_helped {
-                                        ui.label(
-                                            egui::RichText::new(format!("• {}", item))
-                                                .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
-                                        );
-                                    }
-                                });
-                                ui.add_space(30.0);
-                            }
-
-                            // What hurt section
-                            if !self.survey_data.what_hurt.is_empty() {
-                                ui.vertical(|ui| {
-                                    ui.label(
-                                        egui::RichText::new(self.t.how_hurt())
-                                            .size(16.0)
-                                            .strong()
-                                            .color(egui::Color32::from_rgb(0xe7, 0x4c, 0x3c)),
-                                    );
-                                    ui.add_space(5.0);
-                                    for item in &self.survey_data.what_hurt {
-                                        ui.label(
-                                            egui::RichText::new(format!("• {}", item))
-                                                .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
-                                        );
-                                    }
-                                });
-                                ui.add_space(15.0);
-                            }
-                        }
-
-                        ui.add_space(30.0);
-                        ui.separator();
-                        ui.add_space(15.0);
-
-                        ui.vertical_centered(|ui| {
-                            if ui
-                                .add(
-                                    egui::Button::new(egui::RichText::new(self.t.button_close()).color(text_color))
-                                        .fill(button_color)
-                                        .rounding(8.0)
-                                        .min_size(egui::vec2(100.0, 32.0)),
-                                )
-                                .clicked()
-                            {
-                                self.show_survey_summary = false;
-                            }
+                    self.render_dropdown(ui);
+                }
+                NotesView::Preview => {
+                    egui::ScrollArea::vertical()
+                        .id_salt("notes_preview_scroll")
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            self.render_markdown_preview(ui);
                         });
+                }
+            }
+        });
+    }
 
-                        ui.add_space(20.0);
+    fn render_pure_timer_layout(&mut self, ui: &mut egui::Ui, text_color: egui::Color32, button_color: egui::Color32, work_color: egui::Color32, break_color: egui::Color32) {
+        ui.vertical_centered(|ui| {
+            ui.add_space(60.0);
+            ui.label(egui::RichText::new(self.format_time()).size(48.0).color(text_color));
+            ui.add_space(10.0);
+            let (label, color) = match self.mode { TimerMode::Work => (self.t.timer_work(), work_color), TimerMode::Break => (self.t.timer_break(), break_color) };
+            ui.label(egui::RichText::new(label).size(20.0).color(color));
+            ui.add_space(30.0);
+            ui.horizontal(|ui| {
+                ui.add_space(20.0);
+                let btn = if self.is_running { self.t.pause_button() } else { self.t.start_button() };
+                if Self::rounded_button(ui, &btn, text_color, button_color).clicked() { self.toggle_timer(); }
+                ui.add_space(10.0);
+                if Self::rounded_button(ui, &self.t.reset_button(), text_color, button_color).clicked() { self.reset_timer(); }
+                ui.add_space(10.0);
+                if Self::rounded_button(ui, &self.t.button_skip().to_uppercase(), text_color, button_color).clicked() { self.skip_to_break(); }
+            });
+            ui.add_space(40.0);
+            if ui.add(egui::Button::new(egui::RichText::new(self.t.settings_btn()).color(text_color)).fill(button_color).rounding(8.0)).clicked() {
+                self.temp_work_duration = self.config.work_duration; self.temp_break_duration = self.config.break_duration;
+                self.temp_notes_directory = self.config.notes_directory.clone(); self.show_settings = true;
+            }
+            if ui.add(egui::Button::new(egui::RichText::new(self.t.survey_summary_title()).color(text_color)).fill(button_color).rounding(8.0)).clicked() {
+                self.show_survey_summary = true;
+            }
+            ui.add_space(10.0);
+            if ui.add(egui::Button::new(egui::RichText::new(if self.notes_enabled { self.t.notes_on() } else { self.t.notes_off() }).color(text_color)).fill(button_color).rounding(8.0)).clicked() {
+                self.notes_enabled = !self.notes_enabled; self.config.notes_enabled = self.notes_enabled; let _ = self.config.save();
+            }
+            ui.add_space(10.0);
+            ui.label(egui::RichText::new(self.t.sessions_completed_label(self.sessions_completed)).size(12.0).color(egui::Color32::from_rgb(0x88, 0x88, 0x88)));
+            if ui.add(egui::Button::new(egui::RichText::new(self.t.help_button()).color(text_color)).fill(button_color).rounding(8.0)).clicked() { self.show_help = true; }
+            ui_components::render_todo_panel(ui, &mut self.todo_list, &mut self.todo_input, &self.t, text_color, button_color);
+        });
+    }
+
+    fn render_dropdown(&mut self, ui: &mut egui::Ui) {
+        if self.dropdown_visible && !self.dropdown_items.is_empty() {
+             egui::Area::new(egui::Id::new("autocomplete_dropdown")).pivot(egui::Align2::LEFT_TOP).interactable(true).order(egui::Order::Foreground).show(ui.ctx(), |ui| {
+                egui::Frame::popup(ui.style()).fill(egui::Color32::from_rgb(0x2a, 0x2a, 0x3e)).show(ui, |ui| {
+                    ui.set_min_width(200.0);
+                    ui.label(egui::RichText::new(if self.dropdown_type == DropdownType::Command { self.t.autocomplete_commands() } else { self.t.autocomplete_hashtags() }).weak().size(10.0));
+                    egui::ScrollArea::vertical()
+                        .id_salt("dropdown_scroll")
+                        .max_height(150.0)
+                        .show(ui, |ui| {
+                        let mut selection = None;
+                        for (i, item) in self.dropdown_items.iter().enumerate() {
+                            let text = if self.dropdown_type == DropdownType::Hashtag { format!("#{}", item) } else { format!("/{}", item) };
+                            if ui.selectable_label(i == self.dropdown_selected, text).clicked() { selection = Some(item.clone()); }
+                        }
+                        if let Some(s) = selection { self.apply_dropdown_selection(s); }
                     });
                 });
             });
         }
+    }
 
-        // Help dialog - full window
-        if self.show_help {
-            egui::CentralPanel::default().show(ctx, |ui| {
-                ui.vertical_centered(|ui| {
-                    ui.add_space(20.0);
-                    ui.label(
-                        egui::RichText::new(self.t.keyboard_shortcuts_title())
-                            .size(28.0)
-                            .color(text_color)
-                            .strong(),
-                    );
-                    ui.add_space(20.0);
+    pub fn show_settings_dialog(&mut self, ctx: &egui::Context, text_color: egui::Color32, button_color: egui::Color32) {
+        if !self.show_settings { return; }
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(20.0);
+                ui.label(egui::RichText::new(format!("⚙ {}", self.t.settings_title())).size(28.0).color(text_color).strong());
+                ui.add_space(30.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(40.0);
+                    ui.label(egui::RichText::new(format!("{} {} min", self.t.work_duration(), self.temp_work_duration)).size(18.0).color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)));
+                    if ui.add(egui::Button::new("-").fill(button_color).min_size(egui::vec2(40.0, 30.0))).clicked() { self.temp_work_duration = self.temp_work_duration.saturating_sub(1).max(1); }
+                    if ui.add(egui::Button::new("+").fill(button_color).min_size(egui::vec2(40.0, 30.0))).clicked() { self.temp_work_duration = self.temp_work_duration.saturating_add(1).min(60); }
                 });
-
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    ui.vertical_centered(|ui| {
-                        ui.set_max_width(500.0);
-                        
-                        // Timer Controls
-                        ui.vertical(|ui| {
-                            ui.label(
-                                egui::RichText::new(self.t.help_timer_title())
-                                    .size(16.0)
-                                    .strong()
-                                    .color(text_color),
-                            );
-                            ui.add_space(8.0);
-
-                            let timer_shortcuts = [
-                                ("Space", self.t.shortcut_start_pause()),
-                                ("R", self.t.shortcut_reset()),
-                            ];
-                            for (key, action) in timer_shortcuts {
-                                ui.horizontal(|ui| {
-                                    ui.add_space(10.0);
-                                    ui.label(
-                                        egui::RichText::new(format!("{:<15}", key))
-                                            .monospace()
-                                            .color(egui::Color32::from_rgb(0x88, 0xcc, 0xff)),
-                                    );
-                                    ui.label(egui::RichText::new(action).color(text_color));
-                                });
-                            }
-                        });
-
-                        ui.add_space(30.0);
-
-                        // Notes Editor
-                        ui.vertical(|ui| {
-                            ui.label(
-                                egui::RichText::new(self.t.help_notes_title())
-                                    .size(16.0)
-                                    .strong()
-                                    .color(text_color),
-                            );
-                            ui.add_space(8.0);
-
-                            let notes_shortcuts = [
-                                ("Ctrl+P", self.t.shortcut_format()),
-                                ("Ctrl+D", self.t.shortcut_bullet()),
-                                ("Tab", self.t.shortcut_indent()),
-                                ("/", self.t.shortcut_slash()),
-                                ("#", self.t.shortcut_hashtag()),
-                                ("↑/↓", self.t.shortcut_navigate()),
-                                ("Enter/Tab", self.t.shortcut_select()),
-                                ("Esc", self.t.shortcut_close_dropdown()),
-                            ];
-                            for (key, action) in notes_shortcuts {
-                                ui.horizontal(|ui| {
-                                    ui.add_space(10.0);
-                                    ui.label(
-                                        egui::RichText::new(format!("{:<15}", key))
-                                            .monospace()
-                                            .color(egui::Color32::from_rgb(0x88, 0xcc, 0xff)),
-                                    );
-                                    ui.label(egui::RichText::new(action).color(text_color));
-                                });
-                            }
-                        });
-
-                        ui.add_space(30.0);
-
-                        // General
-                        ui.vertical(|ui| {
-                            ui.label(
-                                egui::RichText::new(self.t.help_general_title())
-                                    .size(16.0)
-                                    .strong()
-                                    .color(text_color),
-                            );
-                            ui.add_space(8.0);
-
-                            let general_shortcuts = [
-                                ("Ctrl+?", self.t.shortcut_toggle_help()),
-                                ("S", self.t.shortcut_settings()),
-                            ];
-                            for (key, action) in general_shortcuts {
-                                ui.horizontal(|ui| {
-                                    ui.add_space(10.0);
-                                    ui.label(
-                                        egui::RichText::new(format!("{:<15}", key))
-                                            .monospace()
-                                            .color(egui::Color32::from_rgb(0x88, 0xcc, 0xff)),
-                                    );
-                                    ui.label(egui::RichText::new(action).color(text_color));
-                                });
-                            }
-                        });
+                ui.add_space(15.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(40.0);
+                    ui.label(egui::RichText::new(format!("{} {} min", self.t.break_duration(), self.temp_break_duration)).size(18.0).color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)));
+                    if ui.add(egui::Button::new("-").fill(button_color).min_size(egui::vec2(40.0, 30.0))).clicked() { self.temp_break_duration = self.temp_break_duration.saturating_sub(1).max(1); }
+                    if ui.add(egui::Button::new("+").fill(button_color).min_size(egui::vec2(40.0, 30.0))).clicked() { self.temp_break_duration = self.temp_break_duration.saturating_add(1).min(30); }
+                });
+                ui.add_space(20.0);
+                ui.horizontal(|ui| { ui.add_space(40.0); ui.label(egui::RichText::new(self.t.notes_directory()).size(16.0).color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc))); });
+                ui.horizontal(|ui| { ui.add_space(40.0); ui.add(egui::TextEdit::singleline(&mut self.temp_notes_directory).desired_width(350.0)); });
+                ui.add_space(20.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(40.0);
+                    if ui.add(egui::Button::new(egui::RichText::new(if self.config.survey_enabled { self.t.surveys_on() } else { self.t.surveys_off() }).color(text_color)).fill(button_color)).clicked() {
+                        self.config.survey_enabled = !self.config.survey_enabled; let _ = self.config.save();
+                    }
+                });
+                ui.add_space(15.0);
+                ui.horizontal(|ui| { ui.add_space(40.0); if ui.add(egui::Button::new(egui::RichText::new(self.t.reset_survey_data_btn()).color(egui::Color32::from_rgb(0xe7, 0x4c, 0x3c))).fill(button_color)).clicked() { self.reset_survey_data(); } });
+                ui.add_space(20.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(40.0);
+                    ui.label(egui::RichText::new(self.t.language_setting()).size(18.0).color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)));
+                    egui::ComboBox::from_label("").selected_text(match self.temp_language { Language::English => self.t.lang_en(), Language::German => self.t.lang_de() }).show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.temp_language, Language::English, self.t.lang_en());
+                        ui.selectable_value(&mut self.temp_language, Language::German, self.t.lang_de());
                     });
-
-                    ui.add_space(30.0);
-                    ui.separator();
+                });
+                ui.add_space(40.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(40.0);
+                    if ui_components::rounded_button(ui, &self.t.button_cancel(), text_color, button_color).clicked() {
+                        self.show_settings = false; self.temp_work_duration = self.config.work_duration; self.temp_break_duration = self.config.break_duration;
+                        self.temp_notes_directory = self.config.notes_directory.clone(); self.temp_language = self.config.language;
+                    }
                     ui.add_space(15.0);
-
-                    ui.vertical_centered(|ui| {
-                        if ui
-                            .add(
-                                egui::Button::new(egui::RichText::new(self.t.button_close()).color(text_color))
-                                    .fill(button_color)
-                                    .rounding(8.0)
-                                    .min_size(egui::vec2(100.0, 32.0)),
-                            )
-                            .clicked()
-                        {
-                            self.show_help = false;
-                        }
-                    });
-
-                    ui.add_space(20.0);
+                    if ui.add(egui::Button::new(self.t.button_save()).fill(egui::Color32::from_rgb(0x27, 0xae, 0x60)).rounding(8.0).min_size(egui::vec2(100.0, 35.0))).clicked() {
+                        self.save_settings(); self.show_settings = false;
+                    }
                 });
             });
-        }
+        });
+    }
+
+    pub fn show_survey_dialog(&mut self, ctx: &egui::Context, text_color: egui::Color32, button_color: egui::Color32) {
+        if !self.show_survey { return; }
+        egui::Window::new(format!("{} 🎉", self.t.survey_complete_title())).collapsible(false).resizable(false).show(ctx, |ui| {
+            ui.set_min_width(400.0);
+            ui.label(egui::RichText::new(self.t.survey_question_focus()).size(16.0).color(text_color));
+            ui.add_space(15.0);
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(self.t.survey_rating_label(self.survey_focus_rating)).color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)));
+                if ui.add(egui::Button::new("-").fill(button_color)).clicked() { self.survey_focus_rating = self.survey_focus_rating.saturating_sub(1).max(1); }
+                if ui.add(egui::Button::new("+").fill(button_color)).clicked() { self.survey_focus_rating = self.survey_focus_rating.saturating_add(1).min(10); }
+            });
+            ui.add_space(15.0);
+            ui.label(egui::RichText::new(self.t.survey_question_helped()).color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)));
+            ui.add(egui::TextEdit::singleline(&mut self.survey_what_helped).desired_width(350.0).hint_text(self.t.helped_hint()));
+            ui.add_space(10.0);
+            ui.label(egui::RichText::new(self.t.survey_question_hurt()).color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)));
+            ui.add(egui::TextEdit::singleline(&mut self.survey_what_hurt).desired_width(350.0).hint_text(self.t.hurt_hint()));
+            ui.add_space(20.0);
+            if self.survey_data.focus_count > 0 {
+                ui.separator(); ui.add_space(5.0);
+                ui.label(egui::RichText::new(self.t.avg_focus_today(self.survey_data.average_focus_today)).size(12.0).color(egui::Color32::from_rgb(0x88, 0x88, 0x88)));
+                ui.label(egui::RichText::new(self.t.avg_focus_overall(self.survey_data.average_focus)).size(12.0).color(egui::Color32::from_rgb(0x88, 0x88, 0x88)));
+            }
+            ui.horizontal(|ui| {
+                if ui.add(egui::Button::new(self.t.button_skip()).fill(button_color)).clicked() { self.skip_survey(); }
+                if ui.add(egui::Button::new(self.t.button_submit()).fill(egui::Color32::from_rgb(0x27, 0xae, 0x60))).clicked() { self.submit_survey(); }
+            });
+        });
+    }
+
+    pub fn show_survey_summary_dialog(&mut self, ctx: &egui::Context, text_color: egui::Color32, button_color: egui::Color32) {
+        if !self.show_survey_summary { return; }
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(20.0);
+                ui.label(egui::RichText::new(self.t.survey_summary_title()).size(28.0).color(text_color).strong());
+                ui.add_space(20.0);
+            });
+            egui::ScrollArea::vertical()
+                .id_salt("survey_summary_scroll")
+                .show(ui, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.set_max_width(500.0);
+                    if self.survey_data.focus_count == 0 {
+                        ui.label(egui::RichText::new(self.t.no_survey_data()).size(16.0).color(egui::Color32::from_rgb(0xaa, 0xaa, 0xaa)));
+                    } else {
+                        ui.vertical(|ui| {
+                            ui.label(egui::RichText::new(self.t.focus_ratings()).size(16.0).strong().color(text_color));
+                            ui.label(egui::RichText::new(self.t.avg_focus_today(self.survey_data.average_focus_today)).color(text_color));
+                            ui.label(egui::RichText::new(self.t.avg_focus_overall(self.survey_data.average_focus)).color(text_color));
+                        });
+                        ui.add_space(25.0);
+                        if !self.survey_data.what_helped.is_empty() {
+                            ui.vertical(|ui| {
+                                ui.label(egui::RichText::new(self.t.how_helped()).size(16.0).strong().color(text_color));
+                                for item in &self.survey_data.what_helped { ui.label(egui::RichText::new(format!("• {}", item)).color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc))); }
+                            });
+                        }
+                        ui.add_space(25.0);
+                        if !self.survey_data.what_hurt.is_empty() {
+                            ui.vertical(|ui| {
+                                ui.label(egui::RichText::new(self.t.how_hurt()).size(16.0).strong().color(text_color));
+                                for item in &self.survey_data.what_hurt { ui.label(egui::RichText::new(format!("• {}", item)).color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc))); }
+                            });
+                        }
+                    }
+                    ui.add_space(30.0); ui.separator(); ui.add_space(15.0);
+                    if ui_components::rounded_button(ui, &self.t.button_close(), text_color, button_color).clicked() { self.show_survey_summary = false; }
+                });
+            });
+        });
+    }
+
+    pub fn show_help_dialog(&mut self, ctx: &egui::Context, text_color: egui::Color32, button_color: egui::Color32) {
+        if !self.show_help { return; }
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(20.0);
+                ui.label(egui::RichText::new(self.t.keyboard_shortcuts_title()).size(28.0).color(text_color).strong());
+                ui.add_space(20.0);
+            });
+            egui::ScrollArea::vertical()
+                .id_salt("help_shortcuts_scroll")
+                .show(ui, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.set_max_width(500.0);
+                    let shortcuts = [
+                        (self.t.help_timer_title(), vec![("Space", self.t.shortcut_start_pause()), ("R", self.t.shortcut_reset())]),
+                        (self.t.help_notes_title(), vec![("Ctrl+P", self.t.shortcut_format()), ("Ctrl+D", self.t.shortcut_bullet()), ("Tab", self.t.shortcut_indent()), ("/", self.t.shortcut_slash()), ("#", self.t.shortcut_hashtag())]),
+                        (self.t.help_general_title(), vec![("Ctrl+?", self.t.shortcut_toggle_help())])
+                    ];
+                    for (title, list) in shortcuts {
+                        ui.vertical(|ui| {
+                            ui.label(egui::RichText::new(title).size(16.0).strong().color(text_color));
+                            for (key, action) in list {
+                                ui.horizontal(|ui| {
+                                    ui.add_space(10.0);
+                                    ui.label(egui::RichText::new(format!("{:<15}", key)).monospace().color(egui::Color32::from_rgb(0x88, 0xcc, 0xff)));
+                                    ui.label(egui::RichText::new(action).color(text_color));
+                                });
+                            }
+                        });
+                        ui.add_space(20.0);
+                    }
+                    ui.separator();
+                    if ui_components::rounded_button(ui, &self.t.button_close(), text_color, button_color).clicked() { self.show_help = false; }
+                });
+            });
+        });
     }
 }
