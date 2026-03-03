@@ -435,6 +435,58 @@ impl eframe::App for PomodoroApp {
             }
         }
 
+        // Handle Enter key to continue list items
+        if ctx.input(|i| i.key_pressed(egui::Key::Enter))
+            && self.notes_enabled
+            && self.notes_view == NotesView::Edit
+            && !self.dropdown_visible
+        {
+            let is_focused = ctx.memory(|mem| mem.has_focus(egui::Id::new("notes_text_input")));
+
+            if is_focused {
+                // Get byte position from character position
+                let byte_pos = self.notes_content.char_indices()
+                    .nth(self.notes_cursor_pos)
+                    .map(|(i, _)| i)
+                    .unwrap_or(self.notes_content.len());
+
+                // Find the start of the current line
+                let line_start = self.notes_content[..byte_pos].rfind('\n')
+                    .map(|i| i + 1)
+                    .unwrap_or(0);
+
+                let line_content = &self.notes_content[line_start..byte_pos];
+
+                // Check for list markers at the start of the line (with optional leading spaces)
+                let trimmed = line_content.trim_start();
+                let leading_spaces = line_content.len() - trimmed.len();
+
+                // Check for unordered list (- or *)
+                if trimmed.starts_with("- ") || trimmed.starts_with("* ") {
+                    let marker = &trimmed[..2]; // "- " or "* "
+                    let indent = &line_content[..leading_spaces];
+                    let new_item = format!("\n{}{}", indent, marker);
+                    self.notes_content.insert_str(byte_pos, &new_item);
+                    self.requested_cursor_pos = Some(self.notes_cursor_pos + new_item.chars().count());
+                    ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+                }
+                // Check for ordered list (1., 2., 3., etc.)
+                else if let Some(rest) = trimmed.strip_prefix(|c: char| c.is_ascii_digit()) {
+                    if rest.starts_with(". ") {
+                        // Extract the number from the beginning
+                        let num_str = trimmed.chars().take_while(|c| c.is_ascii_digit()).collect::<String>();
+                        if let Ok(num) = num_str.parse::<u32>() {
+                            let indent = &line_content[..leading_spaces];
+                            let new_item = format!("\n{}{}. ", indent, num + 1);
+                            self.notes_content.insert_str(byte_pos, &new_item);
+                            self.requested_cursor_pos = Some(self.notes_cursor_pos + new_item.chars().count());
+                            ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+                        }
+                    }
+                }
+            }
+        }
+
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             if self.dropdown_visible {
                 self.dropdown_visible = false;
