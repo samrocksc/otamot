@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
@@ -46,6 +47,9 @@ pub struct Config {
 
     #[serde(default)]
     pub language: Language,
+
+    #[serde(default = "default_slash_commands")]
+    pub slash_commands: HashMap<String, String>,
 }
 
 fn default_survey_enabled() -> bool {
@@ -63,6 +67,19 @@ fn default_notes_directory() -> String {
     format!("{}/.config/otamot/notes", home)
 }
 
+fn default_slash_commands() -> HashMap<String, String> {
+    let mut commands = HashMap::new();
+    commands.insert("date".to_string(), "{{date}}".to_string());
+    commands.insert("time".to_string(), "{{time}}".to_string());
+    commands.insert("datetime".to_string(), "{{datetime}}".to_string());
+    commands.insert("todo".to_string(), "- [ ] ".to_string());
+    commands.insert("done".to_string(), "- [x] ".to_string());
+    commands.insert("bullet".to_string(), "- ".to_string());
+    commands.insert("hr".to_string(), "---\n".to_string());
+    commands.insert("code".to_string(), "```\n\n```".to_string());
+    commands
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -72,6 +89,7 @@ impl Default for Config {
             notes_enabled: false,
             survey_enabled: default_survey_enabled(),
             language: Language::default(),
+            slash_commands: default_slash_commands(),
         }
     }
 }
@@ -168,6 +186,7 @@ mod tests {
             notes_enabled: true,
             survey_enabled: true,
             language: Language::German,
+            slash_commands: HashMap::new(),
         };
 
         let json = serde_json::to_string(&config).unwrap();
@@ -198,6 +217,20 @@ mod tests {
         assert!(config.notes_enabled);
         assert!(!config.survey_enabled);
     }
+
+    #[test]
+    fn test_custom_slash_command_persistence() {
+        let json = r#"{
+            "slash_commands": {
+                "ted": "Ted Williams"
+            }
+        }"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.slash_commands.get("ted"), Some(&"Ted Williams".to_string()));
+        // Ensure defaults are also there if using the default() constructor then merging, 
+        // but here we just test deserialization of the specific field.
+    }
+
 
     #[test]
     fn test_config_deserialization_partial() {
@@ -234,6 +267,7 @@ mod tests {
             notes_enabled: true,
             survey_enabled: true,
             language: Language::English,
+            slash_commands: HashMap::new(),
         };
 
         config.save_to_path(&config_path).unwrap();

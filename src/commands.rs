@@ -1,23 +1,9 @@
-//! Slash command support for the notes editor
-//!
-//! Provides a system for custom slash commands that insert content into notes.
+/// Slash command support for the notes editor
+///
+/// Provides a system for custom slash commands that insert content into notes.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-
-/// Default slash commands included with the app
-pub fn default_commands() -> HashMap<String, String> {
-    let mut commands = HashMap::new();
-    commands.insert("date".to_string(), "{{date}}".to_string());
-    commands.insert("time".to_string(), "{{time}}".to_string());
-    commands.insert("datetime".to_string(), "{{datetime}}".to_string());
-    commands.insert("todo".to_string(), "- [ ] ".to_string());
-    commands.insert("done".to_string(), "- [x] ".to_string());
-    commands.insert("bullet".to_string(), "- ".to_string());
-    commands.insert("hr".to_string(), "---\n".to_string());
-    commands.insert("code".to_string(), "```\n\n```".to_string());
-    commands
-}
 
 /// Slash command manager
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,7 +15,7 @@ pub struct CommandManager {
 impl Default for CommandManager {
     fn default() -> Self {
         Self {
-            commands: default_commands(),
+            commands: HashMap::new(),
         }
     }
 }
@@ -38,6 +24,16 @@ impl CommandManager {
     /// Create a new command manager with default commands
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Create a new command manager with custom commands
+    pub fn with_commands(commands: HashMap<String, String>) -> Self {
+        Self { commands }
+    }
+
+    /// Get all available commands
+    pub fn get_commands(&self) -> HashMap<String, String> {
+        self.commands.clone()
     }
 
     /// Get all available command names
@@ -81,52 +77,6 @@ impl CommandManager {
     /// Remove a command
     pub fn remove_command(&mut self, name: &str) -> bool {
         self.commands.remove(name).is_some()
-    }
-
-    /// Load commands from config directory
-    pub fn load() -> Self {
-        let config_dir = std::env::var("HOME")
-            .map(|home| format!("{}/.config/otamot", home))
-            .unwrap_or_else(|_| ".otamot".to_string());
-
-        let commands_file = std::path::PathBuf::from(&config_dir).join("commands.json");
-
-        if commands_file.exists() {
-            match std::fs::read_to_string(&commands_file) {
-                Ok(content) => match serde_json::from_str(&content) {
-                    Ok(manager) => return manager,
-                    Err(e) => eprintln!("Failed to parse commands.json: {}", e),
-                },
-                Err(e) => eprintln!("Failed to read commands.json: {}", e),
-            }
-        }
-
-        Self::default()
-    }
-
-    /// Save commands to config directory
-    pub fn save(&self) {
-        let config_dir = std::env::var("HOME")
-            .map(|home| format!("{}/.config/otamot", home))
-            .unwrap_or_else(|_| ".otamot".to_string());
-
-        let config_path = std::path::PathBuf::from(&config_dir);
-
-        if let Err(e) = std::fs::create_dir_all(&config_path) {
-            eprintln!("Failed to create config directory: {}", e);
-            return;
-        }
-
-        let commands_file = config_path.join("commands.json");
-
-        match serde_json::to_string_pretty(self) {
-            Ok(content) => {
-                if let Err(e) = std::fs::write(&commands_file, content) {
-                    eprintln!("Failed to save commands.json: {}", e);
-                }
-            }
-            Err(e) => eprintln!("Failed to serialize commands: {}", e),
-        }
     }
 
     /// Process text to find slash command at cursor position
@@ -174,9 +124,17 @@ impl CommandManager {
 mod tests {
     use super::*;
 
+    fn mock_commands() -> HashMap<String, String> {
+        let mut commands = HashMap::new();
+        commands.insert("date".to_string(), "{{date}}".to_string());
+        commands.insert("time".to_string(), "{{time}}".to_string());
+        commands.insert("todo".to_string(), "- [ ] ".to_string());
+        commands
+    }
+
     #[test]
-    fn test_default_commands_exist() {
-        let manager = CommandManager::new();
+    fn test_commands_exist() {
+        let manager = CommandManager::with_commands(mock_commands());
         assert!(manager.execute("date").is_some());
         assert!(manager.execute("time").is_some());
         assert!(manager.execute("todo").is_some());
@@ -184,7 +142,7 @@ mod tests {
 
     #[test]
     fn test_search_commands() {
-        let manager = CommandManager::new();
+        let manager = CommandManager::with_commands(mock_commands());
         let results = manager.search_commands("t");
         assert!(results.contains(&"time".to_string()));
         assert!(results.contains(&"todo".to_string()));
@@ -219,7 +177,7 @@ mod tests {
 
     #[test]
     fn test_template_replacement() {
-        let manager = CommandManager::new();
+        let manager = CommandManager::with_commands(mock_commands());
         let result = manager.execute("date").unwrap();
         // Should be in YYYY-MM-DD format
         assert!(result.len() == 10);

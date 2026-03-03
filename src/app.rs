@@ -107,7 +107,7 @@ impl PomodoroApp {
             notes_view: NotesView::Edit,
             focus_notes_input: false,
             requested_cursor_pos: None,
-            command_manager: CommandManager::load(),
+            command_manager: CommandManager::with_commands(config.slash_commands.clone()),
             hashtag_library: HashtagLibrary::load(),
             dropdown_visible: false,
             dropdown_type: DropdownType::Command,
@@ -343,13 +343,13 @@ tags:
         self.config.notes_directory = self.temp_notes_directory.clone();
         self.config.language = self.temp_language;
         self.t = T::new(self.config.language);
+        self.config.slash_commands = self.command_manager.get_commands();
 
         if let Err(e) = self.config.save() {
             eprintln!("Failed to save config: {}", e);
         }
 
-        // Save slash commands and hashtags
-        self.command_manager.save();
+        // Save hashtags
         self.hashtag_library.save();
 
         // Reset timer if not running
