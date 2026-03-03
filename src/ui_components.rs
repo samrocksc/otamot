@@ -148,7 +148,7 @@ pub fn render_todo_panel(
             let response = ui.add(
                 egui::TextEdit::singleline(todo_input)
                     .hint_text(t.todo_hint())
-                    .desired_width(280.0),
+                    .desired_width(ui.available_width() - 20.0),
             );
             if (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
                 && !todo_input.trim().is_empty()

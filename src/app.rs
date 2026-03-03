@@ -511,17 +511,24 @@ impl eframe::App for PomodoroApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             if self.notes_enabled {
                 ui.horizontal(|ui| {
+                    // Left column: sidebar (fixed width)
                     ui.vertical(|ui| {
-                        ui.set_max_width(250.0);
+                        ui.set_width(280.0);
                         egui::ScrollArea::vertical()
                             .id_salt("sidebar_scroll")
-                            .auto_shrink([false, false])
                             .show(ui, |ui| {
-                            self.render_timer_column(ui, text_color, button_color, work_color, break_color);
-                        });
+                                self.render_timer_column(ui, text_color, button_color, work_color, break_color);
+                                ui.add_space(20.0);
+                            });
                     });
-                    ui.add_space(20.0);
-                    self.render_notes_column(ctx, ui, text_color, tab_active_color, tab_inactive_color);
+
+                    ui.add_space(12.0);
+
+                    // Right column: notes (remaining space)
+                    ui.vertical(|ui| {
+                        ui.set_min_width(ui.available_width());
+                        self.render_notes_column(ctx, ui, text_color, tab_active_color, tab_inactive_color);
+                    });
                 });
             } else {
                 ui.centered_and_justified(|ui| {
