@@ -152,7 +152,8 @@ pub fn render_todo_panel(
     t: &T,
     text_color: egui::Color32,
     button_color: egui::Color32,
-) {
+) -> bool {
+    let mut changed = false;
     ui.add_space(15.0);
     ui.vertical(|ui| {
         ui.add_space(20.0);
@@ -187,6 +188,7 @@ pub fn render_todo_panel(
             {
                 todo_list.add(todo_input.trim().to_string());
                 todo_input.clear();
+                changed = true;
                 let _ = todo_list.save();
             }
         });
@@ -249,11 +251,13 @@ pub fn render_todo_panel(
 
         if let Some(id) = to_toggle {
             todo_list.toggle(id);
+            changed = true;
             let _ = todo_list.save();
         }
 
         if let Some(id) = to_remove {
             todo_list.remove(id);
+            changed = true;
             let _ = todo_list.save();
         }
     });
@@ -262,11 +266,13 @@ pub fn render_todo_panel(
     let completed = todo_list.completed_count();
     if completed > 0 {
         ui.add_space(10.0);
-        if rounded_button(ui, t.todo_clear_completed_btn(), text_color, button_color).clicked() {
+        if rounded_button(ui, t.todo_clear_completed_btn().as_str(), text_color, button_color).clicked() {
             todo_list.clear_completed();
+            changed = true;
             let _ = todo_list.save();
         }
     }
+    changed
 }
 
 /// A standard rounded button for the UI.
@@ -323,11 +329,14 @@ pub fn render_kanban_board(
     text_color: Color32,
     bg_color: Color32,
     item_bg_color: Color32,
-) {
+) -> bool {
+    let mut changed = false;
     ui.add_space(10.0);
     
-    egui::Frame::none()
-        .inner_margin(egui::Margin::same(10.0))
+    egui::Frame::group(ui.style())
+        .fill(bg_color)
+        .rounding(egui::Rounding::same(8.0))
+        .inner_margin(egui::Margin::same(15.0))
         .show(ui, |ui| {
             ui.label(
                 egui::RichText::new("Kanban Board")
@@ -349,11 +358,13 @@ pub fn render_kanban_board(
                 {
                     board.add_item(kanban_input.trim().to_string());
                     kanban_input.clear();
+                    changed = true;
                     let _ = board.save();
                 }
                 if small_rounded_button(ui, "Add", text_color, Color32::from_rgb(0x27, 0xae, 0x60)).clicked() && !kanban_input.trim().is_empty() {
                     board.add_item(kanban_input.trim().to_string());
                     kanban_input.clear();
+                    changed = true;
                     let _ = board.save();
                 }
 
@@ -365,6 +376,7 @@ pub fn render_kanban_board(
                 ui.add_space(5.0);
                 if small_rounded_button(ui, "Clear Done", text_color, Color32::from_rgb(0xe7, 0x4c, 0x3c)).clicked() {
                     board.clear_done();
+                    changed = true;
                     let _ = board.save();
                 }
             });
@@ -433,6 +445,7 @@ pub fn render_kanban_board(
                                                         |ui| {
                                                             if icon_button(ui, "❌", text_color, item_bg_color.linear_multiply(1.5)).clicked() {
                                                                 board.delete_item(item.id);
+                                                                changed = true;
                                                                 let _ = board.save();
                                                             }
                                                         },
@@ -463,7 +476,9 @@ pub fn render_kanban_board(
 
             if let (Some(item_id), Some(status)) = (from_item_id, to_status) {
                 board.move_item(item_id, status);
+                changed = true;
                 let _ = board.save();
             }
         });
+    changed
 }

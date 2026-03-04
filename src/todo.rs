@@ -32,17 +32,11 @@ pub struct TodoList {
     #[serde(default)]
     pub completed: Vec<TodoItem>,
 
-    /// Historical archive of all completed items ever cleared
-    #[serde(default)]
     pub history: Vec<TodoItem>,
-
     pub next_id: usize,
-
-    #[serde(default)]
     pub enabled: bool,
-
-    #[serde(default)]
     pub last_updated: Option<DateTime<Local>>,
+    pub todo_file: String,
 }
 
 impl TodoList {
@@ -56,60 +50,40 @@ impl TodoList {
             next_id: 1,
             enabled: false,
             last_updated: None,
+            todo_file: String::new(),
         }
     }
 
     /// Load TODO list from config directory
-    pub fn load() -> Self {
-        let path = Self::todo_path();
+    pub fn load_from_path(path_str: &str) -> Self {
+        let path = PathBuf::from(path_str);
 
         let mut list = if path.exists() {
             match std::fs::read_to_string(&path) {
                 Ok(content) => {
-                    // Try to parse as JSON first (new format usually in .json)
-                    let json_path = path.with_extension("json");
-                    let mut decoded = if json_path.exists() {
-                        std::fs::read_to_string(&json_path)
-                            .ok()
-                            .and_then(|c| serde_json::from_str::<TodoList>(&c).ok())
-                            .unwrap_or_default()
+                    // Try to parse as JSON if it ends in .json
+                    if path.extension().and_then(|s| s.to_str()) == Some("json") {
+                         serde_json::from_str::<TodoList>(&content).unwrap_or_default()
                     } else {
-                        // Fall back to parsing markdown TODO format from .md
-                        Self::parse_markdown(&content)
-                    };
-
-                    // Migration: if we have flat items, move them to active/completed
-                    if !decoded.items.is_empty() {
-                        for item in decoded.items.drain(..) {
-                            if item.completed {
-                                decoded.completed.push(item);
-                            } else {
-                                decoded.active.push(item);
-                            }
-                        }
+                        // Fall back to parsing markdown TODO format
+                        Self::from_markdown(&content)
                     }
-                    decoded
                 }
                 Err(e) => {
-                    eprintln!("Failed to read todo.md: {}", e);
+                    eprintln!("Failed to read todo file: {}", e);
                     Self::default()
                 }
             }
         } else {
             Self::default()
         };
-
-        // Ensure next_id is correct after loading
-        let max_active = list.active.iter().map(|i| i.id).max().unwrap_or(0);
-        let max_comp = list.completed.iter().map(|i| i.id).max().unwrap_or(0);
-        list.next_id = max_active.max(max_comp) + 1;
-
+        list.todo_file = path_str.to_string();
         list
     }
 
-    /// Save TODO list to config directory
-    pub fn save(&self) {
-        let path = Self::todo_path();
+    /// Save TODO list to a specific path
+    pub fn save_to_path(&self, path_str: &str) {
+        let path = PathBuf::from(path_str);
 
         if let Some(parent) = path.parent() {
             if let Err(e) = std::fs::create_dir_all(parent) {
@@ -118,28 +92,20 @@ impl TodoList {
             }
         }
 
-        // Save as JSON (primary format with separate sections)
-        let json_path = path.with_extension("json");
-        match serde_json::to_string_pretty(self) {
-            Ok(content) => {
-                if let Err(e) = std::fs::write(&json_path, content) {
-                    eprintln!("Failed to save todo.json: {}", e);
-                }
-            }
-            Err(e) => eprintln!("Failed to serialize todo list: {}", e),
-        }
-
-        // Also save as markdown for user accessibility (flat format with headers)
-        let md_content = self.to_markdown();
-        if let Err(e) = std::fs::write(&path, md_content) {
-            eprintln!("Failed to save todo.md: {}", e);
+        // We only support Markdown for the linked TODO file now
+        let todo_md = self.to_markdown();
+        if let Err(e) = std::fs::write(&path, todo_md) {
+            eprintln!("Failed to save todo markdown: {}", e);
         }
     }
 
-    /// Get the path to the TODO file
-    fn todo_path() -> PathBuf {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        PathBuf::from(home).join(".config/otamot/todo.md")
+    pub fn save(&self) {
+        if self.todo_file.is_empty() {
+             let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+             let default_path = format!("{}/.config/otamot/TODO.md", home);
+             return self.save_to_path(&default_path);
+        }
+        self.save_to_path(&self.todo_file);
     }
 
     /// Add a new TODO item
@@ -205,20 +171,8 @@ impl TodoList {
     pub fn to_markdown(&self) -> String {
         let mut output = String::new();
 
-        // Frontmatter
-        output.push_str("---\n");
-        output.push_str(&format!(
-            "last_updated: {}\n",
-            self.last_updated
-                .map(|d| d.format("%Y-%m-%d %H:%M:%S").to_string())
-                .unwrap_or_default()
-        ));
-        output.push_str(&format!(
-            "total_items: {}\n",
-            self.active.len() + self.completed.len()
-        ));
-        output.push_str(&format!("completed: {}\n", self.completed.len()));
-        output.push_str("---\n\n");
+        // Section header
+        output.push_str("# TODO\n\n");
 
         if self.active.is_empty() && self.completed.is_empty() {
             output.push_str("No TODO items yet!\n");
@@ -243,71 +197,62 @@ impl TodoList {
                     output.push_str(&format!("- [x] {}{}\n", item.text, ts));
                 }
             }
-
-            if !self.history.is_empty() {
-                output.push_str(&format!("\n## History ({} items)\n\n", self.history.len()));
-                for item in &self.history {
-                    let ts = item
-                        .completed_at
-                        .map(|d| d.format(" [%Y-%m-%d %H:%M]").to_string())
-                        .unwrap_or_default();
-                    output.push_str(&format!("- [x] {}{}\n", item.text, ts));
-                }
-            }
         }
 
         output
     }
 
     /// Parse from markdown format
-    fn parse_markdown(content: &str) -> Self {
+    pub fn from_markdown(content: &str) -> Self {
         let mut list = Self::default();
-        let mut in_frontmatter = false;
+        let mut in_todo_section = false;
+        let mut next_id = 1;
 
         for line in content.lines() {
-            if line.trim() == "---" {
-                in_frontmatter = !in_frontmatter;
-                continue;
-            }
-            if in_frontmatter {
-                continue;
-            }
-
             let trimmed = line.trim();
-            if trimmed.starts_with("- [ ] ") {
-                let text = trimmed[6..].to_string();
-                list.active.push(TodoItem {
-                    id: list.next_id,
-                    text,
-                    completed: false,
-                    created_at: Local::now(),
-                    completed_at: None,
-                });
-                list.next_id += 1;
-            } else if let Some(stripped) = trimmed.strip_prefix("- [x] ") {
-                // Try to extract timestamp if present like "- [x] task [2026-03-03 ...]"
-                let text_part = stripped.to_string();
-                let (text, completed_at) = if let Some(bracket_pos) = text_part.rfind(" [") {
-                    (text_part[..bracket_pos].to_string(), Some(Local::now()))
-                } else {
-                    (text_part, Some(Local::now()))
-                };
+            
+            // Look for the start of the TODO section
+            if trimmed == "# TODO" {
+                in_todo_section = true;
+                continue;
+            }
+            
+            // If we hit another top-level header, we have exited the TODO section
+            if in_todo_section && trimmed.starts_with("# ") && trimmed != "# TODO" {
+                break;
+            }
 
-                list.completed.push(TodoItem {
-                    id: list.next_id,
-                    text: text.trim().to_string(),
-                    completed: true,
-                    created_at: Local::now(),
-                    completed_at,
-                });
-                list.next_id += 1;
+            if in_todo_section {
+                if trimmed.starts_with("- [ ] ") {
+                    let text = trimmed[6..].to_string();
+                    list.active.push(TodoItem {
+                        id: next_id,
+                        text,
+                        completed: false,
+                        created_at: Local::now(),
+                        completed_at: None,
+                    });
+                    next_id += 1;
+                } else if let Some(stripped) = trimmed.strip_prefix("- [x] ") {
+                    let text_part = stripped.to_string();
+                    let (text, completed_at) = if let Some(bracket_pos) = text_part.rfind(" [") {
+                        (text_part[..bracket_pos].to_string(), Some(Local::now()))
+                    } else {
+                        (text_part, Some(Local::now()))
+                    };
+
+                    list.completed.push(TodoItem {
+                        id: next_id,
+                        text: text.trim().to_string(),
+                        completed: true,
+                        created_at: Local::now(),
+                        completed_at,
+                    });
+                    next_id += 1;
+                }
             }
         }
-
-        if !list.active.is_empty() || !list.completed.is_empty() {
-            list.last_updated = Some(Local::now());
-        }
-
+        list.next_id = next_id;
         list
     }
 }

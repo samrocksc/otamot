@@ -122,11 +122,12 @@ impl HashtagLibrary {
     }
 
     /// Find hashtag at cursor position
-    /// Returns (start_index, hashtag_text_without_hash) if a hashtag is being typed
-    pub fn find_hashtag_at_cursor(text: &str, cursor_pos: usize) -> Option<(usize, String)> {
+    /// Takes a byte index for current cursor.
+    /// Returns (start_byte_index, hashtag_text_without_hash) if a hashtag is being typed
+    pub fn find_hashtag_at_cursor(text: &str, byte_cursor_pos: usize) -> Option<(usize, String)> {
         // Find the start of the current line
-        let line_start = text[..cursor_pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
-        let line_text = &text[line_start..cursor_pos];
+        let line_start = text[..byte_cursor_pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
+        let line_text = &text[line_start..byte_cursor_pos];
 
         // Find the last '#' in the line before cursor
         if let Some(hash_pos) = line_text.rfind('#') {
@@ -155,9 +156,10 @@ impl HashtagLibrary {
     }
 
     /// Insert hashtag into text, replacing the partial hashtag
-    pub fn insert_hashtag(text: &str, cursor_pos: usize, hash_start: usize, tag: &str) -> String {
-        let before = &text[..hash_start];
-        let after = &text[cursor_pos..];
+    /// Takes byte indices.
+    pub fn insert_hashtag(text: &str, byte_cursor_pos: usize, byte_hash_start: usize, tag: &str) -> String {
+        let before = &text[..byte_hash_start];
+        let after = &text[byte_cursor_pos..];
         format!("{}#{} {}", before, tag, after)
     }
 

@@ -24,43 +24,56 @@ pub struct KanbanBoard {
     pub history: Vec<KanbanItem>,
     pub next_id: usize,
     pub todo_sync: bool,
+
+    #[serde(default)]
+    pub kanban_file: String,
 }
 
 impl KanbanBoard {
-    pub fn load() -> Self {
-        let path = Self::path();
-        let board = if path.exists() {
-            std::fs::read_to_string(path)
-                .ok()
-                .and_then(|content| {
-                    serde_json::from_str::<KanbanBoard>(&content).ok()
-                })
-                .unwrap_or_default()
-        } else {
-            Self {
-                items: Vec::new(),
-                history: Vec::new(),
-                next_id: 1,
-                todo_sync: true,
+    pub fn load_from_path(path_str: &str) -> Self {
+        let path = PathBuf::from(path_str);
+        let mut board = if path.exists() {
+            match std::fs::read_to_string(&path) {
+                Ok(content) => {
+                    if path.extension().and_then(|s| s.to_str()) == Some("json") {
+                        serde_json::from_str::<KanbanBoard>(&content).unwrap_or_default()
+                    } else {
+                        Self::from_markdown(&content)
+                    }
+                }
+                Err(_) => Self::default(),
             }
+        } else {
+            Self::default()
         };
-
+        board.kanban_file = path_str.to_string();
         board
     }
 
-    pub fn save(&self) -> std::io::Result<()> {
-        let path = Self::path();
+    pub fn save_to_path(&self, path_str: &str) -> std::io::Result<()> {
+        let path = std::path::PathBuf::from(path_str);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let content = serde_json::to_string_pretty(self)?;
-        std::fs::write(path, content)
+        
+        let kanban_md = self.to_markdown();
+        
+        // If the file is the global TODO.md, we need to preserve the # TODO section if it exists
+        // actually let's just make save_to_path much simpler and have it just write the md
+        // and we will handle the merging and syncing in a dedicated "ProjectManager" or similar.
+        // For now, let's just make it write the markdown.
+        std::fs::write(path, kanban_md)
     }
 
-    fn path() -> PathBuf {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        PathBuf::from(home).join(".config/otamot/kanban.json")
+    pub fn save(&self) -> std::io::Result<()> {
+        if self.kanban_file.is_empty() {
+             let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+             let path = format!("{}/.config/otamot/TODO.md", home);
+             return self.save_to_path(&path);
+        }
+        self.save_to_path(&self.kanban_file)
     }
+
 
     pub fn add_item(&mut self, text: String) {
         let item = KanbanItem {
@@ -100,14 +113,87 @@ impl KanbanBoard {
         }
     }
 
+    pub fn to_markdown(&self) -> String {
+        let mut output = String::new();
+        output.push_str("# Kanban\n\n");
+        
+        let statuses = [
+            (KanbanStatus::Todo, "TODO"),
+            (KanbanStatus::InProgress, "IN PROGRESS"),
+            (KanbanStatus::Done, "DONE"),
+        ];
+
+        for (status, label) in statuses {
+            output.push_str(&format!("## {}\n", label));
+            let items: Vec<_> = self.items.iter().filter(|i| i.status == status).collect();
+            if items.is_empty() {
+                output.push_str("(No items)\n");
+            } else {
+                for item in items {
+                    let checkbox = if status == KanbanStatus::Done { "[x]" } else { "[ ]" };
+                    output.push_str(&format!("- {} {}\n", checkbox, item.text));
+                }
+            }
+            output.push('\n');
+        }
+
+        output
+    }
+
+    pub fn from_markdown(content: &str) -> Self {
+        let mut board = Self::default();
+        let mut in_kanban_section = false;
+        let mut current_status = None;
+        let mut next_id = 1;
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+            
+            if trimmed == "# Kanban" {
+                in_kanban_section = true;
+                continue;
+            }
+            
+            if in_kanban_section && trimmed.starts_with("# ") && trimmed != "# Kanban" {
+                break;
+            }
+            
+            if in_kanban_section {
+                if trimmed == "## TODO" {
+                    current_status = Some(KanbanStatus::Todo);
+                } else if trimmed == "## IN PROGRESS" {
+                    current_status = Some(KanbanStatus::InProgress);
+                } else if trimmed == "## DONE" {
+                    current_status = Some(KanbanStatus::Done);
+                } else if (trimmed.starts_with("- [ ] ") || trimmed.starts_with("- [x] ")) && current_status.is_some() {
+                    let text = &trimmed[6..];
+                    
+                    if text != "(No items)" && !text.is_empty() {
+                        board.items.push(KanbanItem {
+                            id: next_id,
+                            text: text.to_string(),
+                            status: current_status.clone().unwrap(),
+                            created_at: Local::now(),
+                            updated_at: Local::now(),
+                        });
+                        next_id += 1;
+                    }
+                }
+            }
+        }
+        board.next_id = next_id;
+        board
+    }
+
     pub fn sync_with_todo(&mut self, todo_list: &mut crate::todo::TodoList) {
-        let mut changed = false;
+        let mut changed_kanban = false;
+        let mut changed_todo = false;
 
         // 1. Add new items from TodoList that aren't in Kanban
         for todo in &todo_list.active {
             if !self.items.iter().any(|k| k.text == todo.text) {
                 self.add_item(todo.text.clone());
-                changed = true;
+                changed_kanban = true;
             }
         }
 
@@ -123,7 +209,7 @@ impl KanbanBoard {
                 };
                 self.items.push(item);
                 self.next_id += 1;
-                changed = true;
+                changed_kanban = true;
             }
         }
 
@@ -134,21 +220,24 @@ impl KanbanBoard {
                     // If Done in Kanban, it MUST be completed in Todo
                     if let Some(todo_pos) = todo_list.active.iter().position(|t| t.text == kanban_item.text) {
                         todo_list.toggle(todo_list.active[todo_pos].id);
-                        let _ = todo_list.save();
+                        changed_todo = true;
                     }
                 }
                 KanbanStatus::Todo | KanbanStatus::InProgress => {
                     // If NOT Done in Kanban, it MUST be active in Todo (if it exists)
                     if let Some(todo_pos) = todo_list.completed.iter().position(|t| t.text == kanban_item.text) {
                         todo_list.toggle(todo_list.completed[todo_pos].id);
-                        let _ = todo_list.save();
+                        changed_todo = true;
                     }
                 }
             }
         }
 
-        if changed {
+        if changed_kanban {
             let _ = self.save();
+        }
+        if changed_todo {
+            let _ = todo_list.save();
         }
     }
 }

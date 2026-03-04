@@ -79,11 +79,12 @@ impl CommandManager {
     }
 
     /// Process text to find slash command at cursor position
-    /// Returns (command_start_index, command_text) if a command is being typed
-    pub fn find_command_at_cursor(text: &str, cursor_pos: usize) -> Option<(usize, String)> {
+    /// Takes a byte index for current cursor.
+    /// Returns (command_start_byte_index, command_text) if a command is being typed
+    pub fn find_command_at_cursor(text: &str, byte_cursor_pos: usize) -> Option<(usize, String)> {
         // Find the start of the current line
-        let line_start = text[..cursor_pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
-        let line_text = &text[line_start..cursor_pos];
+        let line_start = text[..byte_cursor_pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
+        let line_text = &text[line_start..byte_cursor_pos];
 
         // Find the last '/' in the line before cursor
         if let Some(slash_pos) = line_text.rfind('/') {
@@ -107,14 +108,15 @@ impl CommandManager {
     }
 
     /// Insert command result into text, replacing the command syntax
+    /// Takes byte indices.
     pub fn insert_command(
         text: &str,
-        cursor_pos: usize,
-        command_start: usize,
+        byte_cursor_pos: usize,
+        byte_command_start: usize,
         replacement: &str,
     ) -> String {
-        let before = &text[..command_start];
-        let after = &text[cursor_pos..];
+        let before = &text[..byte_command_start];
+        let after = &text[byte_cursor_pos..];
         format!("{}{}{}", before, replacement, after)
     }
 }

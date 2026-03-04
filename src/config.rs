@@ -28,7 +28,7 @@ impl Default for Language {
 }
 
 /// A color representation for serialization
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CustomColor {
     pub r: u8,
     pub g: u8,
@@ -42,7 +42,7 @@ impl CustomColor {
 }
 
 /// Theme configuration for the application
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Theme {
     pub name: String,
     pub text: CustomColor,
@@ -136,6 +136,9 @@ pub struct Config {
     #[serde(default = "default_notes_directory")]
     pub notes_directory: String,
 
+    #[serde(default = "default_todo_file")]
+    pub todo_file: String,
+
     #[serde(default)]
     pub notes_enabled: bool,
 
@@ -179,6 +182,10 @@ fn default_notes_directory() -> String {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     format!("{}/.config/otamot/notes", home)
 }
+fn default_todo_file() -> String {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    format!("{}/.config/otamot/TODO.md", home)
+}
 
 fn default_slash_commands() -> HashMap<String, String> {
     let mut commands = HashMap::new();
@@ -199,6 +206,7 @@ impl Default for Config {
             work_duration: default_work_duration(),
             break_duration: default_break_duration(),
             notes_directory: default_notes_directory(),
+            todo_file: default_todo_file(),
             notes_enabled: false,
             survey_enabled: default_survey_enabled(),
             language: Language::default(),

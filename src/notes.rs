@@ -110,6 +110,33 @@ pub fn save_note(directory: &str, filename: &str, content: &str) -> std::io::Res
     Ok(())
 }
 
+/// Get path to draft file
+pub fn draft_path(directory: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from(directory).join("draft.md")
+}
+
+/// Save draft content
+pub fn save_draft(directory: &str, content: &str) -> std::io::Result<()> {
+    use std::fs;
+    fs::create_dir_all(directory)?;
+    fs::write(draft_path(directory), content)
+}
+
+/// Load draft content
+pub fn load_draft(directory: &str) -> String {
+    std::fs::read_to_string(draft_path(directory)).unwrap_or_default()
+}
+
+/// Clear draft file
+pub fn clear_draft(directory: &str) -> std::io::Result<()> {
+    let path = draft_path(directory);
+    if path.exists() {
+        std::fs::remove_file(path)?;
+    }
+    Ok(())
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -40,6 +40,10 @@ pub struct SurveyData {
     /// Internal: daily focus ratings by date
     #[serde(default)]
     pub daily_ratings: HashMap<String, Vec<u32>>,
+
+    /// Total sessions completed across all time
+    #[serde(default)]
+    pub sessions_completed: u32,
 }
 
 impl SurveyData {

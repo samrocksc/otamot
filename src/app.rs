@@ -44,6 +44,7 @@ pub struct PomodoroApp {
     temp_work_duration: u32,
     temp_break_duration: u32,
     temp_notes_directory: String,
+    temp_todo_file: String,
     temp_language: Language,
     temp_theme: Theme,
 
@@ -115,6 +116,7 @@ impl PomodoroApp {
             temp_work_duration: config.work_duration,
             temp_break_duration: config.break_duration,
             temp_notes_directory: config.notes_directory.clone(),
+            temp_todo_file: config.todo_file.clone(),
             temp_language: config.language,
             temp_theme: config.theme.clone(),
             t: T::new(config.language),
@@ -132,12 +134,12 @@ impl PomodoroApp {
             dropdown_selected: 0,
             dropdown_start_pos: 0,
             show_help: false,
-            todo_list: TodoList::load(),
+            todo_list: TodoList::load_from_path(&config.todo_file),
             todo_input: String::new(),
             todo_enabled: config.todo_enabled,
             editor: EasyMarkEditor::default(),
             kanban_enabled: config.kanban_enabled,
-            kanban_board: KanbanBoard::load(),
+            kanban_board: KanbanBoard::load_from_path(&config.todo_file),
             kanban_input: String::new(),
             sidebar_collapsed: config.sidebar_collapsed,
 
@@ -492,6 +494,21 @@ impl PomodoroApp {
         }
     }
 
+    fn save_project_file(&self) {
+        let mut content = String::new();
+        // Since both TODO and Kanban now save to the same path, 
+        // we can just combine their markdown representations.
+        content.push_str(&self.todo_list.to_markdown());
+        content.push_str("\n\n");
+        content.push_str(&self.kanban_board.to_markdown());
+        
+        let path = std::path::PathBuf::from(&self.config.todo_file);
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(path, content);
+    }
+
     fn save_settings(&mut self) {
         self.config.work_duration = self.temp_work_duration;
         self.config.break_duration = self.temp_break_duration;
@@ -499,6 +516,7 @@ impl PomodoroApp {
         self.config.language = self.temp_language;
         self.config.theme = self.temp_theme.clone();
         self.config.todo_enabled = self.todo_enabled;
+        self.config.todo_file = self.temp_todo_file.clone();
         self.t = T::new(self.config.language);
         self.config.slash_commands = self.command_manager.get_commands();
 
@@ -512,16 +530,6 @@ impl PomodoroApp {
             };
         }
         self.show_settings = false;
-    }
-
-    /// Wrapper for the rounded button component
-    fn rounded_button(
-        ui: &mut egui::Ui,
-        label: &str,
-        text_color: egui::Color32,
-        bg_color: egui::Color32,
-    ) -> egui::Response {
-        ui_components::rounded_button(ui, label, text_color, bg_color)
     }
 
     /// Helper for markdown rendering
@@ -861,24 +869,48 @@ impl eframe::App for PomodoroApp {
 
                     // Side Pillar 2: Timer + Notes area and/or TODOs
                     ui.allocate_ui(egui::vec2(right_width, full_height), |ui| {
+                        ui.style_mut().spacing.item_spacing.x = 10.0; // Internal spacing
+                        
                         ui.vertical(|ui| {
                             egui::ScrollArea::vertical()
                                 .id_salt("right_pillar_scroll")
                                 .auto_shrink([false, false])
                                 .show(ui, |ui| {
-                                    self.render_right_column(
-                                        ctx,
-                                        ui,
-                                        text_color,
-                                        text_dim_color,
-                                        text_highlight_color,
-                                        tab_active_color,
-                                        tab_inactive_color,
-                                        button_color,
-                                        work_color,
-                                        break_color,
-                                        bg_color,
-                                    );
+                                    // Wrap the entire right column in a frame to give 
+                                    // some consistent right-side padding/breathing room
+                                    egui::Frame::none()
+                                        .inner_margin(egui::Margin {
+                                            left: 0.0,
+                                            right: 20.0,
+                                            top: 0.0,
+                                            bottom: 10.0,
+                                        })
+                                        .show(ui, |ui| {
+                                            // Sync components from markdown before rendering column
+                                            // This ensures that manual edits in the notes editor propagate to UI
+                                            if let Some(pos) = self.notes_content.find("# TODO") {
+                                                let todo_part = &self.notes_content[pos..];
+                                                self.todo_list = TodoList::from_markdown(todo_part);
+                                            }
+                                            if let Some(pos) = self.notes_content.find("# Kanban") {
+                                                let kanban_part = &self.notes_content[pos..];
+                                                self.kanban_board = KanbanBoard::from_markdown(kanban_part);
+                                            }
+
+                                            self.render_right_column(
+                                                ctx,
+                                                ui,
+                                                text_color,
+                                                text_dim_color,
+                                                text_highlight_color,
+                                                tab_active_color,
+                                                tab_inactive_color,
+                                                button_color,
+                                                work_color,
+                                                break_color,
+                                                bg_color,
+                                            );
+                                        });
                                 });
                         });
                     });
@@ -896,6 +928,7 @@ impl eframe::App for PomodoroApp {
                                     button_color,
                                     work_color,
                                     break_color,
+                                    text_dim_color,
                                 );
                             });
                         });
@@ -961,84 +994,108 @@ impl PomodoroApp {
         break_color: egui::Color32,
         bg_color: egui::Color32,
     ) {
+        let mut notes_changed = false;
+
         // Render Timer at the top of the right column
         self.render_timer(ui, text_color, button_color, work_color, break_color);
 
         // Render notes section if enabled
         if self.notes_enabled {
-            // Tab buttons
-            ui.horizontal(|ui| {
-                let edit_color = if self.notes_view == NotesView::Edit {
-                    active_color
-                } else {
-                    inactive_color
-                };
-                let edit_text_color = if self.notes_view == NotesView::Edit {
-                    text_highlight_color
-                } else {
-                    text_color
-                };
+            egui::Frame::group(ui.style())
+                .fill(bg_color)
+                .rounding(egui::Rounding::same(8.0))
+                .inner_margin(egui::Margin::same(15.0))
+                .show(ui, |ui| {
+                    ui.vertical(|ui| {
+                        // Tab buttons
+                        ui.horizontal(|ui| {
+                            let edit_color = if self.notes_view == NotesView::Edit {
+                                active_color
+                            } else {
+                                inactive_color
+                            };
+                            let edit_text_color = if self.notes_view == NotesView::Edit {
+                                text_highlight_color
+                            } else {
+                                text_color
+                            };
 
-                let preview_color = if self.notes_view == NotesView::Preview {
-                    active_color
-                } else {
-                    inactive_color
-                };
-                let preview_text_color = if self.notes_view == NotesView::Preview {
-                    text_highlight_color
-                } else {
-                    text_color
-                };
+                            let preview_color = if self.notes_view == NotesView::Preview {
+                                active_color
+                            } else {
+                                inactive_color
+                            };
+                            let preview_text_color = if self.notes_view == NotesView::Preview {
+                                text_highlight_color
+                            } else {
+                                text_color
+                            };
 
-                if ui_components::small_rounded_button(ui, &self.t.edit_tab(), edit_text_color, edit_color).clicked() {
-                    self.notes_view = NotesView::Edit;
-                    self.focus_notes_input = true;
-                }
-                
-                ui.add_space(5.0);
+                            if ui_components::small_rounded_button(ui, &self.t.edit_tab(), edit_text_color, edit_color).clicked() {
+                                self.notes_view = NotesView::Edit;
+                                self.focus_notes_input = true;
+                            }
+                            
+                            ui.add_space(5.0);
 
-                if ui_components::small_rounded_button(ui, &self.t.preview_tab(), preview_text_color, preview_color).clicked() {
-                    self.notes_view = NotesView::Preview;
-                }
-            });
+                            if ui_components::small_rounded_button(ui, &self.t.preview_tab(), preview_text_color, preview_color).clicked() {
+                                self.notes_view = NotesView::Preview;
+                            }
+                        });
 
-            ui.add_space(5.0);
-            match self.notes_view {
-                NotesView::Edit => {
-                    if self.focus_notes_input {
-                        ctx.memory_mut(|mem| mem.request_focus(egui::Id::new("notes_text_input")));
-                        self.focus_notes_input = false;
-                    }
+                        ui.add_space(5.0);
+                        match self.notes_view {
+                            NotesView::Edit => {
+                                if self.focus_notes_input {
+                                    ctx.memory_mut(|mem| mem.request_focus(egui::Id::new("notes_text_input")));
+                                    self.focus_notes_input = false;
+                                }
 
-                    let output = self.editor.show(ui, &mut self.notes_content);
-                    let response = output.response.clone();
+                                let old_notes = self.notes_content.clone();
+                                let output = self.editor.show(ui, &mut self.notes_content);
+                                if self.notes_content != old_notes {
+                                    notes_changed = true;
+                                    
+                                    // Automatically save project if markdown contents updated via editor
+                                    if self.todo_enabled {
+                                        self.todo_list = TodoList::from_markdown(&self.notes_content);
+                                        let _ = self.todo_list.save_to_path(&self.config.todo_file);
+                                    }
+                                    if self.kanban_enabled {
+                                        self.kanban_board = KanbanBoard::from_markdown(&self.notes_content);
+                                        let _ = self.kanban_board.save_to_path(&self.config.todo_file);
+                                    }
+                                }
+                                
+                                let response = output.response.clone();
 
-                    // Track cursor position for Tab handling
-                    if let Some(state) = egui::TextEdit::load_state(ui.ctx(), response.id) {
-                        if let Some(range) = state.cursor.char_range() {
-                            self.notes_cursor_pos = range.primary.index;
+                                // Track cursor position for Tab handling
+                                if let Some(state) = egui::TextEdit::load_state(ui.ctx(), response.id) {
+                                    if let Some(range) = state.cursor.char_range() {
+                                        self.notes_cursor_pos = range.primary.index;
+                                    }
+                                }
+
+                                if let Some(pos) = self.requested_cursor_pos.take() {
+                                    if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), response.id) {
+                                        state
+                                            .cursor
+                                            .set_char_range(Some(egui::text::CCursorRange::one(
+                                                egui::text::CCursor::new(pos),
+                                            )));
+                                        state.store(ui.ctx(), response.id);
+                                        self.notes_cursor_pos = pos;
+                                    }
+                                }
+
+                                self.render_dropdown(ui, &output);
+                            }
+                            NotesView::Preview => {
+                                self.render_markdown_preview(ui);
+                            }
                         }
-                    }
-
-                    if let Some(pos) = self.requested_cursor_pos.take() {
-                        if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), response.id) {
-                            state
-                                .cursor
-                                .set_char_range(Some(egui::text::CCursorRange::one(
-                                    egui::text::CCursor::new(pos),
-                                )));
-                            state.store(ui.ctx(), response.id);
-                            self.notes_cursor_pos = pos;
-                        }
-                    }
-
-                    self.render_dropdown(ui, &output);
-                }
-                NotesView::Preview => {
-                    // We render preview without an internal scroll here, let the pillar scroll handle it
-                    self.render_markdown_preview(ui);
-                }
-            }
+                    });
+                });
         }
 
         // Render TODO section if enabled
@@ -1046,15 +1103,37 @@ impl PomodoroApp {
             if self.notes_enabled {
                 ui.add_space(30.0);
             }
-            ui_components::render_todo_panel(
-                ui,
-                &mut self.todo_list,
-                &mut self.todo_input,
-                &self.kanban_board,
-                &self.t,
-                text_color,
-                button_color,
-            );
+            egui::Frame::group(ui.style())
+                .fill(bg_color)
+                .rounding(egui::Rounding::same(8.0))
+                .inner_margin(egui::Margin::same(15.0))
+                .show(ui, |ui| {
+                if ui_components::render_todo_panel(
+                    ui,
+                    &mut self.todo_list,
+                    &mut self.todo_input,
+                    &self.kanban_board,
+                    &self.t,
+                    text_color,
+                    button_color,
+                ) {
+                    let todo_md = self.todo_list.to_markdown();
+                    // Find or replace TODO section in notes
+                    if let Some(start) = self.notes_content.find("# TODO") {
+                        // Find next section
+                        let end = self.notes_content[start+1..].find("\n# ").map(|i| i + start + 1).unwrap_or(self.notes_content.len());
+                        self.notes_content.replace_range(start..end, &todo_md);
+                        notes_changed = true;
+                    } else {
+                        self.notes_content.push_str("\n\n");
+                        self.notes_content.push_str(&todo_md);
+                        notes_changed = true;
+                    }
+                    
+                    // Also save to global project file
+                    self.save_project_file();
+                }
+                });
         }
 
         // Render Kanban section if enabled
@@ -1062,15 +1141,36 @@ impl PomodoroApp {
             if self.notes_enabled || self.todo_enabled {
                 ui.add_space(30.0);
             }
-            ui_components::render_kanban_board(
-                ui,
-                &mut self.kanban_board,
-                &mut self.kanban_input,
-                &self.t,
-                text_color,
-                bg_color,
-                inactive_color,
-            );
+                if ui_components::render_kanban_board(
+                    ui,
+                    &mut self.kanban_board,
+                    &mut self.kanban_input,
+                    &self.t,
+                    text_color,
+                    bg_color,
+                    inactive_color,
+                ) {
+                    let kanban_md = self.kanban_board.to_markdown();
+                    if let Some(start) = self.notes_content.find("# Kanban") {
+                        let end = self.notes_content[start + 1..]
+                            .find("\n# ")
+                            .map(|i| i + start + 1)
+                            .unwrap_or(self.notes_content.len());
+                        self.notes_content.replace_range(start..end, &kanban_md);
+                        notes_changed = true;
+                    } else {
+                        self.notes_content.push_str("\n\n");
+                        self.notes_content.push_str(&kanban_md);
+                        notes_changed = true;
+                    }
+                    
+                    // Also save to global project file
+                    self.save_project_file();
+                }
+        }
+
+        if notes_changed {
+             let _ = notes::save_draft(&self.config.notes_directory, &self.notes_content);
         }
     }
 
@@ -1081,6 +1181,7 @@ impl PomodoroApp {
         button_color: egui::Color32,
         work_color: egui::Color32,
         break_color: egui::Color32,
+        _text_dim_color: egui::Color32,
     ) {
         ui.vertical_centered(|ui| {
             ui.add_space(60.0);
@@ -1312,6 +1413,22 @@ impl PomodoroApp {
                         ui.add_space(20.0);
                         ui.horizontal(|ui| {
                             ui.add_space(40.0);
+                            ui.label(
+                                egui::RichText::new("TODO/Kanban File")
+                                    .size(16.0)
+                                    .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
+                            );
+                        });
+                        ui.horizontal(|ui| {
+                            ui.add_space(40.0);
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.temp_todo_file)
+                                    .desired_width(350.0),
+                            );
+                        });
+                        ui.add_space(20.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(40.0);
                             let survey_label = if self.config.survey_enabled { self.t.surveys_on() } else { self.t.surveys_off() };
                             if ui_components::rounded_button(ui, &survey_label, text_color, button_color).clicked() {
                                 self.config.survey_enabled = !self.config.survey_enabled;
@@ -1334,10 +1451,10 @@ impl PomodoroApp {
                                     .size(18.0)
                                     .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
                             );
-                            egui::ComboBox::from_label(" ")
+                            egui::ComboBox::from_id_salt("theme_selector")
                                 .selected_text(&self.temp_theme.name)
                                 .show_ui(ui, |ui| {
-                                    let themes = [
+                                    let themes: [Theme; 4] = [
                                         Theme::robotic_lime(),
                                         Theme::monokai_dark(),
                                         Theme::monokai_light(),
@@ -1360,7 +1477,7 @@ impl PomodoroApp {
                                     .size(18.0)
                                     .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
                             );
-                            egui::ComboBox::from_label("")
+                            egui::ComboBox::from_id_salt("language_selector")
                                 .selected_text(match self.temp_language {
                                     Language::English => self.t.lang_en(),
                                     Language::German => self.t.lang_de(),
