@@ -12,6 +12,7 @@ use std::path::PathBuf;
 pub enum NotesView {
     Edit,
     Preview,
+    Project,
 }
 
 /// Represents the available languages

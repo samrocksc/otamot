@@ -92,9 +92,28 @@ impl TodoList {
             }
         }
 
-        // We only support Markdown for the linked TODO file now
+        let mut full_content = if path.exists() {
+            std::fs::read_to_string(&path).unwrap_or_default()
+        } else {
+            String::new()
+        };
+
         let todo_md = self.to_markdown();
-        if let Err(e) = std::fs::write(&path, todo_md) {
+        if let Some(start) = full_content.find("# TODO") {
+            // Find start of next section
+            let end = full_content[start + 1..]
+                .find("\n# ")
+                .map(|i| i + start + 1)
+                .unwrap_or(full_content.len());
+            full_content.replace_range(start..end, &todo_md);
+        } else {
+            if !full_content.is_empty() && !full_content.ends_with('\n') {
+                full_content.push('\n');
+            }
+            full_content.push_str(&todo_md);
+        }
+
+        if let Err(e) = std::fs::write(&path, full_content) {
             eprintln!("Failed to save todo markdown: {}", e);
         }
     }

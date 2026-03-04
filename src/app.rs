@@ -54,6 +54,7 @@ pub struct PomodoroApp {
     // Notes state
     notes_enabled: bool,
     notes_content: String,
+    project_content: String,
     notes_view: NotesView,
     focus_notes_input: bool, // Flag to request focus on notes text input
     requested_cursor_pos: Option<usize>, // Requested cursor position for notes input
@@ -122,6 +123,7 @@ impl PomodoroApp {
             t: T::new(config.language),
             notes_enabled: config.notes_enabled,
             notes_content: notes::load_draft(&config.notes_directory),
+            project_content: std::fs::read_to_string(&config.todo_file).unwrap_or_default(),
             notes_view: NotesView::Edit,
             focus_notes_input: false,
             requested_cursor_pos: None,
@@ -453,12 +455,10 @@ impl PomodoroApp {
         let end_time = self.session_end.unwrap_or_else(Local::now);
         let start_time = self.session_start.unwrap_or(end_time);
 
-        let start_formatted = start_time.format("%m-%d-%Y-%H-%M");
-        let end_formatted = end_time.format("%H-%M");
-        let filename = format!("{}-{}.md", start_formatted, end_formatted);
+        let filename = notes::generate_filename(start_time, end_time);
         let filepath = notes_dir.join(&filename);
 
-        // Generate frontmatter (using local values)
+        // Generate frontmatter
         let mode_str = match self.mode {
             TimerMode::Work => "work",
             TimerMode::Break => "break",
@@ -475,7 +475,7 @@ impl PomodoroApp {
             .collect::<Vec<_>>()
             .join("\n");
 
-        // Filter out TODO and Kanban sections from saved notes
+        // Filter out auto-generated project sections if they crept into the buffer
         let mut notes_to_save = self.notes_content.clone();
         if let Some(pos) = notes_to_save.find("# TODO") {
             notes_to_save.truncate(pos);
@@ -483,7 +483,8 @@ impl PomodoroApp {
         if let Some(pos) = notes_to_save.find("# Kanban") {
             notes_to_save.truncate(pos);
         }
-        let notes_to_save = notes_to_save.trim();
+        
+        let notes_to_save = notes_to_save.trim().to_string();
 
         let frontmatter = format!(
             "---\ntitle: \"Pomodoro Session\"\ndate: {}\nstart_time: {}\nend_time: {}\nduration_minutes: {}\nmode: {}\nsessions_completed: {}\ntags:\n{}\n---\n\n",
@@ -498,25 +499,31 @@ impl PomodoroApp {
 
         let content = format!("{}{}", frontmatter, notes_to_save);
         if let Err(e) = std::fs::write(&filepath, &content) {
-            eprintln!("Failed to save notes: {}", e);
+            eprintln!("Failed to write note file: {}", e);
         } else {
-            let _ = notes::clear_draft(&self.config.notes_directory);
+            // Clean up session notes but leave the project state if it was there
+            // Note: we usually cleared everything, let's go back to that clean slate for next session
             self.notes_content.clear();
+            let _ = notes::clear_draft(&self.config.notes_directory);
         }
     }
 
     fn save_project_file(&self) {
-        let mut content = String::new();
-        // Since both TODO and Kanban now save to the same path, 
-        // we can just combine their markdown representations.
-        content.push_str(&self.todo_list.to_markdown());
-        content.push_str("\n\n");
-        content.push_str(&self.kanban_board.to_markdown());
-        
         let path = std::path::PathBuf::from(&self.config.todo_file);
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
+        
+        let content = if self.notes_view == NotesView::Project {
+            self.project_content.clone()
+        } else {
+            let mut c = String::new();
+            c.push_str(&self.todo_list.to_markdown());
+            c.push_str("\n\n");
+            c.push_str(&self.kanban_board.to_markdown());
+            c
+        };
+        
         let _ = std::fs::write(path, content);
     }
 
@@ -688,6 +695,10 @@ impl eframe::App for PomodoroApp {
             self.notes_view = match self.notes_view {
                 NotesView::Edit => NotesView::Preview,
                 NotesView::Preview => {
+                    self.focus_notes_input = true;
+                    NotesView::Edit
+                }
+                NotesView::Project => {
                     self.focus_notes_input = true;
                     NotesView::Edit
                 }
@@ -1031,6 +1042,10 @@ impl PomodoroApp {
                                 text_color
                             };
 
+                            let project_active = self.notes_view == NotesView::Project;
+                            let project_color = if project_active { active_color } else { inactive_color };
+                            let project_text_color = if project_active { text_highlight_color } else { text_color };
+
                             if ui_components::small_rounded_button(ui, &self.t.edit_tab(), edit_text_color, edit_color).clicked() {
                                 self.notes_view = NotesView::Edit;
                                 self.focus_notes_input = true;
@@ -1040,6 +1055,14 @@ impl PomodoroApp {
 
                             if ui_components::small_rounded_button(ui, &self.t.preview_tab(), preview_text_color, preview_color).clicked() {
                                 self.notes_view = NotesView::Preview;
+                            }
+
+                            ui.add_space(5.0);
+
+                            if ui_components::small_rounded_button(ui, "Project", project_text_color, project_color).clicked() {
+                                self.notes_view = NotesView::Project;
+                                self.project_content = std::fs::read_to_string(&self.config.todo_file).unwrap_or_default();
+                                self.focus_notes_input = true;
                             }
                         });
 
@@ -1083,6 +1106,32 @@ impl PomodoroApp {
                             NotesView::Preview => {
                                 self.render_markdown_preview(ui);
                             }
+                            NotesView::Project => {
+                                if self.focus_notes_input {
+                                    ctx.memory_mut(|mem| mem.request_focus(egui::Id::new("todo_text_input")));
+                                    self.focus_notes_input = false;
+                                }
+
+                                let old_project = self.project_content.clone();
+                                ui.add(
+                                    egui::TextEdit::multiline(&mut self.project_content)
+                                        .id(egui::Id::new("todo_text_input"))
+                                        .desired_width(f32::INFINITY)
+                                        .desired_rows(12)
+                                        .font(egui::TextStyle::Monospace)
+                                        .lock_focus(true)
+                                );
+
+                                if self.project_content != old_project {
+                                    // Save Project file
+                                    let path = std::path::PathBuf::from(&self.config.todo_file);
+                                    let _ = std::fs::write(path, &self.project_content);
+                                    
+                                    // Sync UI objects
+                                    self.todo_list = TodoList::from_markdown(&self.project_content);
+                                    self.kanban_board = KanbanBoard::from_markdown(&self.project_content);
+                                }
+                            }
                         }
                     });
                 });
@@ -1107,20 +1156,7 @@ impl PomodoroApp {
                     text_color,
                     button_color,
                 ) {
-                    let todo_md = self.todo_list.to_markdown();
-                    // Find or replace TODO section in notes
-                    if let Some(start) = self.notes_content.find("# TODO") {
-                        // Find next section
-                        let end = self.notes_content[start+1..].find("\n# ").map(|i| i + start + 1).unwrap_or(self.notes_content.len());
-                        self.notes_content.replace_range(start..end, &todo_md);
-                        notes_changed = true;
-                    } else {
-                        self.notes_content.push_str("\n\n");
-                        self.notes_content.push_str(&todo_md);
-                        notes_changed = true;
-                    }
-                    
-                    // Also save to global project file
+                    // Update global project file only
                     self.save_project_file();
                 }
                 });
@@ -1131,6 +1167,11 @@ impl PomodoroApp {
             if self.notes_enabled || self.todo_enabled {
                 ui.add_space(30.0);
             }
+            egui::Frame::group(ui.style())
+                .fill(bg_color)
+                .rounding(egui::Rounding::same(8.0))
+                .inner_margin(egui::Margin::same(15.0))
+                .show(ui, |ui| {
                 if ui_components::render_kanban_board(
                     ui,
                     &mut self.kanban_board,
@@ -1140,23 +1181,10 @@ impl PomodoroApp {
                     bg_color,
                     inactive_color,
                 ) {
-                    let kanban_md = self.kanban_board.to_markdown();
-                    if let Some(start) = self.notes_content.find("# Kanban") {
-                        let end = self.notes_content[start + 1..]
-                            .find("\n# ")
-                            .map(|i| i + start + 1)
-                            .unwrap_or(self.notes_content.len());
-                        self.notes_content.replace_range(start..end, &kanban_md);
-                        notes_changed = true;
-                    } else {
-                        self.notes_content.push_str("\n\n");
-                        self.notes_content.push_str(&kanban_md);
-                        notes_changed = true;
-                    }
-                    
-                    // Also save to global project file
+                    // Update global project file only
                     self.save_project_file();
                 }
+            });
         }
 
         if notes_changed {

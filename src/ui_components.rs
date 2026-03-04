@@ -408,9 +408,9 @@ pub fn render_kanban_board(
                         ui.add_space(5.0);
 
                         let col_bg = Color32::from_rgb(
-                            bg_color.r().saturating_add(20),
-                            bg_color.g().saturating_add(20),
-                            bg_color.b().saturating_add(20),
+                            bg_color.r().saturating_add(8),
+                            bg_color.g().saturating_add(8),
+                            bg_color.b().saturating_add(8),
                         );
                         let frame = Frame::group(ui.style())
                             .fill(col_bg)
