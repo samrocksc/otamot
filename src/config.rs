@@ -45,6 +45,7 @@ impl CustomColor {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Theme {
     pub name: String,
+    pub dark_mode: bool,
     pub text: CustomColor,
     pub text_dim: CustomColor,
     pub text_highlight: CustomColor,
@@ -66,6 +67,7 @@ impl Theme {
     pub fn dark() -> Self {
         Self {
             name: "Dark".to_string(),
+            dark_mode: true,
             text: CustomColor::new(0xee, 0xee, 0xee),
             text_dim: CustomColor::new(0x88, 0x88, 0x88),
             text_highlight: CustomColor::new(0xff, 0xff, 0xff),
@@ -81,6 +83,7 @@ impl Theme {
     pub fn robotic_lime() -> Self {
         Self {
             name: "Robotic Lime".to_string(),
+            dark_mode: true,
             text: CustomColor::new(0x00, 0xff, 0x00),      // Terminal Green
             text_dim: CustomColor::new(0x00, 0x88, 0x00),  // Dim Green
             text_highlight: CustomColor::new(0x1a, 0x1a, 0x1a), // Dark Grey for contrast on highlight
@@ -96,6 +99,7 @@ impl Theme {
     pub fn monokai_dark() -> Self {
         Self {
             name: "Monokai Dark".to_string(),
+            dark_mode: true,
             text: CustomColor::new(0xF8, 0xF8, 0xF2),      // White
             text_dim: CustomColor::new(0x75, 0x71, 0x5E),  // Stone
             text_highlight: CustomColor::new(0x27, 0x28, 0x22), // Background
@@ -111,15 +115,16 @@ impl Theme {
     pub fn monokai_light() -> Self {
         Self {
             name: "Monokai Light".to_string(),
-            text: CustomColor::new(0x27, 0x28, 0x22),      // Classic Monokai background used as text color
-            text_dim: CustomColor::new(0x75, 0x71, 0x5E),  // Stone
-            text_highlight: CustomColor::new(0xFF, 0xFF, 0xFF), // Pure white
-            work: CustomColor::new(0xF9, 0x26, 0x72),      // Pink
-            b_break: CustomColor::new(0xA6, 0xE2, 0x2E),   // Green
-            button: CustomColor::new(0xE6, 0xDB, 0x74),   // Yellow
-            bg: CustomColor::new(0xFF, 0xFF, 0xFF),       // White
-            tab_active: CustomColor::new(0xAE, 0x81, 0xFF), // Purple
-            tab_inactive: CustomColor::new(0xE6, 0xE6, 0xE6), // Light Grey
+            dark_mode: false,
+            text: CustomColor::new(0x00, 0x00, 0x00),      // Pure Black
+            text_dim: CustomColor::new(0x88, 0x88, 0x88),  // Grey
+            text_highlight: CustomColor::new(0xFF, 0xFF, 0xFF), // Pure White
+            work: CustomColor::new(0xF9, 0x26, 0x72),      // Monokai Pink
+            b_break: CustomColor::new(0x74, 0xbc, 0x44),   // Monokai Green
+            button: CustomColor::new(0xE6, 0xE6, 0xE6),   // Light Grey
+            bg: CustomColor::new(0xFF, 0xFF, 0xFF),       // Pure White background
+            tab_active: CustomColor::new(0xAE, 0x81, 0xFF), // Monokai Purple
+            tab_inactive: CustomColor::new(0xF0, 0xF0, 0xF0), // Off-White
         }
     }
 }

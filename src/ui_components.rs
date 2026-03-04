@@ -51,7 +51,7 @@ pub fn render_markdown_preview(ui: &mut egui::Ui, content: &str, text_color: Col
                     ui.label(
                         egui::RichText::new(line)
                             .monospace()
-                            .color(egui::Color32::from_rgb(0x88, 0x88, 0x88)),
+                            .color(text_color.linear_multiply(0.5)),
                     );
                     continue;
                 }
@@ -60,7 +60,7 @@ pub fn render_markdown_preview(ui: &mut egui::Ui, content: &str, text_color: Col
                     ui.label(
                         egui::RichText::new(line)
                             .monospace()
-                            .color(egui::Color32::from_rgb(0xaa, 0xaa, 0xaa)),
+                            .color(text_color.linear_multiply(0.7)),
                     );
                     continue;
                 }

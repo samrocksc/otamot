@@ -829,7 +829,7 @@ impl eframe::App for PomodoroApp {
             panel_fill: bg_color,
             override_text_color: Some(text_color),
             hyperlink_color: tab_active_color,
-            ..egui::Visuals::dark()
+            ..if theme.dark_mode { egui::Visuals::dark() } else { egui::Visuals::light() }
         });
 
         // Main UI Layout
@@ -937,10 +937,10 @@ impl eframe::App for PomodoroApp {
         });
 
         // Full-screen / Modal windows
-        self.show_settings_dialog(ctx, text_color, button_color);
-        self.show_help_dialog(ctx, text_color, button_color);
-        self.show_survey_dialog(ctx, text_color, button_color);
-        self.show_survey_summary_dialog(ctx, text_color, button_color);
+        self.show_settings_dialog(ctx, text_color, text_dim_color, button_color, tab_active_color);
+        self.show_help_dialog(ctx, text_color, text_dim_color, button_color);
+        self.show_survey_dialog(ctx, text_color, text_dim_color, button_color, tab_active_color);
+        self.show_survey_summary_dialog(ctx, text_color, text_dim_color, button_color);
     }
 }
 
@@ -1334,7 +1334,9 @@ impl PomodoroApp {
         &mut self,
         ctx: &egui::Context,
         text_color: egui::Color32,
+        text_dim_color: egui::Color32,
         button_color: egui::Color32,
+        tab_active_color: egui::Color32,
     ) {
         if !self.show_settings {
             return;
@@ -1362,7 +1364,7 @@ impl PomodoroApp {
                                     self.temp_work_duration
                                 ))
                                 .size(18.0)
-                                .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
+                                .color(text_dim_color),
                             );
                             if ui_components::icon_button(ui, "-", text_color, button_color).clicked() {
                                 self.temp_work_duration =
@@ -1383,7 +1385,7 @@ impl PomodoroApp {
                                     self.temp_break_duration
                                 ))
                                 .size(18.0)
-                                .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
+                                .color(text_dim_color),
                             );
                             if ui_components::icon_button(ui, "-", text_color, button_color).clicked() {
                                 self.temp_break_duration =
@@ -1400,7 +1402,7 @@ impl PomodoroApp {
                             ui.label(
                                 egui::RichText::new(self.t.notes_directory())
                                     .size(16.0)
-                                    .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
+                                    .color(text_dim_color),
                             );
                         });
                         ui.horizontal(|ui| {
@@ -1416,7 +1418,7 @@ impl PomodoroApp {
                             ui.label(
                                 egui::RichText::new("TODO/Kanban File")
                                     .size(16.0)
-                                    .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
+                                    .color(text_dim_color),
                             );
                         });
                         ui.horizontal(|ui| {
@@ -1449,7 +1451,7 @@ impl PomodoroApp {
                             ui.label(
                                 egui::RichText::new("Theme")
                                     .size(18.0)
-                                    .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
+                                    .color(text_dim_color),
                             );
                             egui::ComboBox::from_id_salt("theme_selector")
                                 .selected_text(&self.temp_theme.name)
@@ -1475,7 +1477,7 @@ impl PomodoroApp {
                             ui.label(
                                 egui::RichText::new(self.t.language_setting())
                                     .size(18.0)
-                                    .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
+                                    .color(text_dim_color),
                             );
                             egui::ComboBox::from_id_salt("language_selector")
                                 .selected_text(match self.temp_language {
@@ -1506,7 +1508,7 @@ impl PomodoroApp {
                                 self.temp_language = self.config.language;
                             }
                             ui.add_space(15.0);
-                            if ui_components::rounded_button(ui, &self.t.button_save(), text_color, egui::Color32::from_rgb(0x27, 0xae, 0x60)).clicked() {
+                            if ui_components::rounded_button(ui, &self.t.button_save(), text_color, tab_active_color).clicked() {
                                 self.save_settings();
                                 self.show_settings = false;
                             }
@@ -1521,7 +1523,9 @@ impl PomodoroApp {
         &mut self,
         ctx: &egui::Context,
         text_color: egui::Color32,
+        text_dim_color: egui::Color32,
         button_color: egui::Color32,
+        tab_active_color: egui::Color32,
     ) {
         if !self.show_survey {
             return;
@@ -1545,7 +1549,7 @@ impl PomodoroApp {
                                 egui::RichText::new(
                                     self.t.survey_rating_label(self.survey_focus_rating),
                                 )
-                                .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
+                                .color(text_dim_color),
                             );
                             if ui_components::icon_button(ui, "-", text_color, button_color).clicked() {
                                 self.survey_focus_rating =
@@ -1559,7 +1563,7 @@ impl PomodoroApp {
                         ui.add_space(15.0);
                         ui.label(
                             egui::RichText::new(self.t.survey_question_helped())
-                                .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
+                                .color(text_dim_color),
                         );
                         ui.add(
                             egui::TextEdit::singleline(&mut self.survey_what_helped)
@@ -1569,7 +1573,7 @@ impl PomodoroApp {
                         ui.add_space(10.0);
                         ui.label(
                             egui::RichText::new(self.t.survey_question_hurt())
-                                .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
+                                .color(text_dim_color),
                         );
                         ui.add(
                             egui::TextEdit::singleline(&mut self.survey_what_hurt)
@@ -1585,21 +1589,21 @@ impl PomodoroApp {
                                     self.t.avg_focus_today(self.survey_data.average_focus_today),
                                 )
                                 .size(12.0)
-                                .color(egui::Color32::from_rgb(0x88, 0x88, 0x88)),
+                                .color(text_dim_color),
                             );
                             ui.label(
                                 egui::RichText::new(
                                     self.t.avg_focus_overall(self.survey_data.average_focus),
                                 )
                                 .size(12.0)
-                                .color(egui::Color32::from_rgb(0x88, 0x88, 0x88)),
+                                .color(text_dim_color),
                             );
                         }
                         ui.horizontal(|ui| {
                             if ui_components::rounded_button(ui, &self.t.button_skip(), text_color, button_color).clicked() {
                                 self.skip_survey();
                             }
-                            if ui_components::rounded_button(ui, &self.t.button_submit(), text_color, egui::Color32::from_rgb(0x27, 0xae, 0x60)).clicked() {
+                            if ui_components::rounded_button(ui, &self.t.button_submit(), text_color, tab_active_color).clicked() {
                                 self.submit_survey();
                             }
                         });
@@ -1611,6 +1615,7 @@ impl PomodoroApp {
         &mut self,
         ctx: &egui::Context,
         text_color: egui::Color32,
+        text_dim_color: egui::Color32,
         button_color: egui::Color32,
     ) {
         if !self.show_survey_summary {
@@ -1636,7 +1641,7 @@ impl PomodoroApp {
                             ui.label(
                                 egui::RichText::new(self.t.no_survey_data())
                                     .size(16.0)
-                                    .color(egui::Color32::from_rgb(0xaa, 0xaa, 0xaa)),
+                                    .color(text_dim_color),
                             );
                         } else {
                             ui.vertical(|ui| {
@@ -1672,7 +1677,7 @@ impl PomodoroApp {
                                     for item in &self.survey_data.what_helped {
                                         ui.label(
                                             egui::RichText::new(format!("• {}", item))
-                                                .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
+                                                .color(text_dim_color),
                                         );
                                     }
                                 });
@@ -1689,7 +1694,7 @@ impl PomodoroApp {
                                     for item in &self.survey_data.what_hurt {
                                         ui.label(
                                             egui::RichText::new(format!("• {}", item))
-                                                .color(egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)),
+                                                .color(text_dim_color),
                                         );
                                     }
                                 });
@@ -1717,6 +1722,7 @@ impl PomodoroApp {
         &mut self,
         ctx: &egui::Context,
         text_color: egui::Color32,
+        _text_dim_color: egui::Color32,
         button_color: egui::Color32,
     ) {
         if !self.show_help {
