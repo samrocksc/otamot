@@ -148,10 +148,11 @@ pub fn render_todo_panel(
     ui: &mut egui::Ui,
     todo_list: &mut TodoList,
     todo_input: &mut String,
-    kanban_board: &crate::kanban::KanbanBoard,
+    kanban_board: &mut crate::kanban::KanbanBoard,
     t: &T,
     text_color: egui::Color32,
     button_color: egui::Color32,
+    button_text_color: egui::Color32,
 ) -> bool {
     let mut changed = false;
     ui.add_space(15.0);
@@ -183,14 +184,19 @@ pub fn render_todo_panel(
                     .hint_text(t.todo_hint())
                     .desired_width(ui.available_width() - 20.0),
             );
-            if (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
-                && !todo_input.trim().is_empty()
-            {
-                todo_list.add(todo_input.trim().to_string());
-                todo_input.clear();
-                changed = true;
-                let _ = todo_list.save();
-            }
+                if (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+                    && !todo_input.trim().is_empty()
+                {
+                    let text = todo_input.trim().to_string();
+                    todo_list.add(text.clone());
+                    // Link: Add to Kanban board as well
+                    kanban_board.add_item(text);
+                    
+                    todo_input.clear();
+                    changed = true;
+                    let _ = todo_list.save();
+                    let _ = kanban_board.save();
+                }
         });
     });
 
@@ -198,7 +204,8 @@ pub fn render_todo_panel(
     ui.add_space(5.0);
     // Use the available space in the column; the parent sidebar provides scrolling
     ui.vertical(|ui| {
-        let mut to_remove = None;
+        let mut to_remove_id = None;
+        let mut to_remove_text = None;
         let mut to_toggle = None;
 
         // Render Active items
@@ -222,8 +229,9 @@ pub fn render_todo_panel(
                 };
                 ui.label(status_emoji);
 
-                if icon_button(ui, "❌", text_color, button_color).clicked() {
-                    to_remove = Some(item.id);
+                if icon_button(ui, "❌", button_text_color, button_color).clicked() {
+                    to_remove_id = Some(item.id);
+                    to_remove_text = Some(item.text.clone());
                 }
             });
         }
@@ -243,8 +251,9 @@ pub fn render_todo_panel(
                 );
                 ui.label("🟢"); // Always green if completed in TODO list
 
-                if icon_button(ui, "❌", text_color, button_color).clicked() {
-                    to_remove = Some(item.id);
+                if icon_button(ui, "❌", button_text_color, button_color).clicked() {
+                    to_remove_id = Some(item.id);
+                    to_remove_text = Some(item.text.clone());
                 }
             });
         }
@@ -255,8 +264,19 @@ pub fn render_todo_panel(
             let _ = todo_list.save();
         }
 
-        if let Some(id) = to_remove {
+        if let Some(id) = to_remove_id {
             todo_list.remove(id);
+            // Also remove from Kanban board
+            if let Some(text) = to_remove_text {
+                let kanban_ids: Vec<usize> = kanban_board.items.iter()
+                    .filter(|k| k.text == text)
+                    .map(|k| k.id)
+                    .collect();
+                for kid in kanban_ids {
+                    kanban_board.delete_item(kid);
+                }
+                let _ = kanban_board.save();
+            }
             changed = true;
             let _ = todo_list.save();
         }
@@ -266,7 +286,7 @@ pub fn render_todo_panel(
     let completed = todo_list.completed_count();
     if completed > 0 {
         ui.add_space(10.0);
-        if rounded_button(ui, t.todo_clear_completed_btn().as_str(), text_color, button_color).clicked() {
+        if rounded_button(ui, t.todo_clear_completed_btn().as_str(), button_text_color, button_color).clicked() {
             todo_list.clear_completed();
             changed = true;
             let _ = todo_list.save();
@@ -301,7 +321,7 @@ pub fn small_rounded_button(
         egui::Button::new(egui::RichText::new(label).size(12.0).color(text_color))
             .fill(bg_color)
             .rounding(6.0)
-            .min_size(egui::vec2(40.0, 24.0)),
+            .min_size(egui::vec2(60.0, 24.0)),
     )
 }
 
@@ -325,10 +345,12 @@ pub fn render_kanban_board(
     ui: &mut egui::Ui,
     board: &mut KanbanBoard,
     kanban_input: &mut String,
-    _t: &T,
+    todo_list: &mut crate::todo::TodoList,
+    t: &T,
     text_color: Color32,
     bg_color: Color32,
     item_bg_color: Color32,
+    button_text_color: Color32,
 ) -> bool {
     let mut changed = false;
     ui.add_space(10.0);
@@ -356,25 +378,31 @@ pub fn render_kanban_board(
                 if (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
                     && !kanban_input.trim().is_empty()
                 {
-                    board.add_item(kanban_input.trim().to_string());
+                    let text = kanban_input.trim().to_string();
+                    board.add_item(text.clone());
+                    todo_list.add(text);
                     kanban_input.clear();
                     changed = true;
                     let _ = board.save();
+                    let _ = todo_list.save();
                 }
-                if small_rounded_button(ui, "Add", text_color, Color32::from_rgb(0x27, 0xae, 0x60)).clicked() && !kanban_input.trim().is_empty() {
-                    board.add_item(kanban_input.trim().to_string());
+                if small_rounded_button(ui, &t.button_add(), button_text_color, Color32::from_rgb(0x27, 0xae, 0x60)).clicked() && !kanban_input.trim().is_empty() {
+                    let text = kanban_input.trim().to_string();
+                    board.add_item(text.clone());
+                    todo_list.add(text);
                     kanban_input.clear();
                     changed = true;
                     let _ = board.save();
+                    let _ = todo_list.save();
                 }
 
                 ui.add_space(5.0);
-                if small_rounded_button(ui, "Clear", text_color, Color32::from_rgb(0x0f, 0x34, 0x60)).clicked() {
+                if small_rounded_button(ui, "Clear", button_text_color, Color32::from_rgb(0x0f, 0x34, 0x60)).clicked() {
                     kanban_input.clear();
                 }
 
                 ui.add_space(5.0);
-                if small_rounded_button(ui, "Clear Done", text_color, Color32::from_rgb(0xe7, 0x4c, 0x3c)).clicked() {
+                if small_rounded_button(ui, "Clear Done", button_text_color, Color32::from_rgb(0xe7, 0x4c, 0x3c)).clicked() {
                     board.clear_done();
                     changed = true;
                     let _ = board.save();
@@ -448,10 +476,23 @@ pub fn render_kanban_board(
                                                             egui::Align::Center,
                                                         ),
                                                         |ui| {
-                                                            if icon_button(ui, "❌", text_color, item_bg_color.linear_multiply(1.5)).clicked() {
+                                                            if icon_button(ui, "❌", button_text_color, item_bg_color.linear_multiply(1.5)).clicked() {
+                                                                let text = item.text.clone();
                                                                 board.delete_item(item.id);
+                                                                // Link: find and remove from TODO
+                                                                let todo_ids: Vec<usize> = todo_list.active.iter()
+                                                                    .filter(|t| t.text == text)
+                                                                    .map(|t| t.id)
+                                                                    .chain(todo_list.completed.iter()
+                                                                        .filter(|t| t.text == text)
+                                                                        .map(|t| t.id))
+                                                                    .collect();
+                                                                for tid in todo_ids {
+                                                                    todo_list.remove(tid);
+                                                                }
                                                                 changed = true;
                                                                 let _ = board.save();
+                                                                let _ = todo_list.save();
                                                             }
                                                         },
                                                     );

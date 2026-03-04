@@ -73,5 +73,7 @@
   "duration_min": "{} Min",
   "settings_btn": "⚙ Einstellungen",
   "todo_status": "{} ausstehend, {} erledigt",
-  "todo_clear_completed_btn": "🗑 Erledigte löschen"
+  "todo_clear_completed_btn": "🗑 Erledigte löschen",
+  "button_add": "Hinzufügen",
+  "button_skip_upper": "ÜBERSPRINGEN"
 }

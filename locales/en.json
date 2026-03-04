@@ -73,5 +73,7 @@
   "duration_min": "{} min",
   "settings_btn": "⚙ Settings",
   "todo_status": "{} pending, {} done",
-  "todo_clear_completed_btn": "🗑 Clear Completed"
+  "todo_clear_completed_btn": "🗑 Clear Completed",
+  "button_add": "Add",
+  "button_skip_upper": "SKIP"
 }

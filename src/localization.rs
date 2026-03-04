@@ -268,4 +268,10 @@ impl T {
     pub fn todo_clear_completed_btn(&self) -> String {
         self.get("todo_clear_completed_btn")
     }
+    pub fn button_add(&self) -> String {
+        self.get("button_add")
+    }
+    pub fn button_skip_upper(&self) -> String {
+        self.get("button_skip_upper")
+    }
 }

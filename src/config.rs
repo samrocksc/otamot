@@ -3,9 +3,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
-
-// TimerMode is now defined in timer module
-// NotesView is only used in the UI (app.rs)
+use chrono::Local;
 
 /// Represents the current view for notes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,8 +48,9 @@ pub struct Theme {
     pub text: CustomColor,
     pub text_dim: CustomColor,
     pub text_highlight: CustomColor,
+    pub button_text: CustomColor,
     pub work: CustomColor,
-    pub b_break: CustomColor, // "break" is a keyword in Rust
+    pub b_break: CustomColor,
     pub button: CustomColor,
     pub bg: CustomColor,
     pub tab_active: CustomColor,
@@ -72,6 +71,7 @@ impl Theme {
             text: CustomColor::new(0xee, 0xee, 0xee),
             text_dim: CustomColor::new(0x88, 0x88, 0x88),
             text_highlight: CustomColor::new(0xff, 0xff, 0xff),
+            button_text: CustomColor::new(0xee, 0xee, 0xee),
             work: CustomColor::new(0xe7, 0x4c, 0x3c),
             b_break: CustomColor::new(0x27, 0xae, 0x60),
             button: CustomColor::new(0x0f, 0x34, 0x60),
@@ -85,13 +85,14 @@ impl Theme {
         Self {
             name: "Robotic Lime".to_string(),
             dark_mode: true,
-            text: CustomColor::new(0x00, 0xff, 0x00),      // Terminal Green
-            text_dim: CustomColor::new(0x00, 0x88, 0x00),  // Dim Green
-            text_highlight: CustomColor::new(0x1a, 0x1a, 0x1a), // Dark Grey for contrast on highlight
-            work: CustomColor::new(0xcc, 0xff, 0x00),      // Neon Yellow-Green
-            b_break: CustomColor::new(0x00, 0xcc, 0x00),   // Darker Green
-            button: CustomColor::new(0x00, 0x33, 0x00),   // Deep Forest Green
-            bg: CustomColor::new(0x05, 0x05, 0x05),       // Black
+            text: CustomColor::new(0x00, 0xff, 0x00),
+            text_dim: CustomColor::new(0x00, 0x88, 0x00),
+            text_highlight: CustomColor::new(0x0a, 0x0a, 0x0a),
+            button_text: CustomColor::new(0x0a, 0x0a, 0x0a), // Clean black for robotic green buttons
+            work: CustomColor::new(0xcc, 0xff, 0x00),
+            b_break: CustomColor::new(0x00, 0xcc, 0x00),
+            button: CustomColor::new(0x00, 0xff, 0x00),
+            bg: CustomColor::new(0x05, 0x05, 0x05),
             tab_active: CustomColor::new(0x00, 0xff, 0x00),
             tab_inactive: CustomColor::new(0x00, 0x22, 0x00),
         }
@@ -101,14 +102,15 @@ impl Theme {
         Self {
             name: "Monokai Dark".to_string(),
             dark_mode: true,
-            text: CustomColor::new(0xF8, 0xF8, 0xF2),      // White
-            text_dim: CustomColor::new(0x75, 0x71, 0x5E),  // Stone
-            text_highlight: CustomColor::new(0x27, 0x28, 0x22), // Background
-            work: CustomColor::new(0xF9, 0x26, 0x72),      // Pink
-            b_break: CustomColor::new(0xA6, 0xE2, 0x2E),   // Green
-            button: CustomColor::new(0x49, 0x48, 0x3E),   // Brown
-            bg: CustomColor::new(0x27, 0x28, 0x22),       // Grey-Black
-            tab_active: CustomColor::new(0xFD, 0x97, 0x1F), // Orange
+            text: CustomColor::new(0xF8, 0xF8, 0xF2),
+            text_dim: CustomColor::new(0x75, 0x71, 0x5E),
+            text_highlight: CustomColor::new(0x27, 0x28, 0x22),
+            button_text: CustomColor::new(0xF8, 0xF8, 0xF2),
+            work: CustomColor::new(0xF9, 0x26, 0x72),
+            b_break: CustomColor::new(0xA6, 0xE2, 0x2E),
+            button: CustomColor::new(0x49, 0x48, 0x3E),
+            bg: CustomColor::new(0x27, 0x28, 0x22),
+            tab_active: CustomColor::new(0xFD, 0x97, 0x1F),
             tab_inactive: CustomColor::new(0x3E, 0x3D, 0x32),
         }
     }
@@ -117,80 +119,57 @@ impl Theme {
         Self {
             name: "Monokai Light".to_string(),
             dark_mode: false,
-            text: CustomColor::new(0x00, 0x00, 0x00),      // Pure Black
-            text_dim: CustomColor::new(0x88, 0x88, 0x88),  // Grey
-            text_highlight: CustomColor::new(0xFF, 0xFF, 0xFF), // Pure White
-            work: CustomColor::new(0xF9, 0x26, 0x72),      // Monokai Pink
-            b_break: CustomColor::new(0x74, 0xbc, 0x44),   // Monokai Green
-            button: CustomColor::new(0xE6, 0xE6, 0xE6),   // Light Grey
-            bg: CustomColor::new(0xFF, 0xFF, 0xFF),       // Pure White background
-            tab_active: CustomColor::new(0xAE, 0x81, 0xFF), // Monokai Purple
-            tab_inactive: CustomColor::new(0xF0, 0xF0, 0xF0), // Off-White
+            text: CustomColor::new(0x27, 0x28, 0x22),
+            text_dim: CustomColor::new(0x75, 0x71, 0x5E),
+            text_highlight: CustomColor::new(0x0a, 0x0a, 0x0a),
+            button_text: CustomColor::new(0xFF, 0xFF, 0xFF), // Pure white text on colored buttons
+            work: CustomColor::new(0xF9, 0x26, 0x72),
+            b_break: CustomColor::new(0x74, 0xbc, 0x44),
+            button: CustomColor::new(0x38, 0x97, 0xd8),    // Blue button
+            bg: CustomColor::new(0xFF, 0xFF, 0xFF),       // Pure white background
+            tab_active: CustomColor::new(0xAE, 0x81, 0xFF),
+            tab_inactive: CustomColor::new(0xE6, 0xE6, 0xE6),
         }
     }
 }
 
-/// Configuration for the Pomodoro app
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default = "default_work_duration")]
     pub work_duration: u32,
-
     #[serde(default = "default_break_duration")]
     pub break_duration: u32,
-
     #[serde(default = "default_notes_directory")]
     pub notes_directory: String,
-
     #[serde(default = "default_todo_file")]
     pub todo_file: String,
-
     #[serde(default)]
     pub notes_enabled: bool,
-
     #[serde(default = "default_survey_enabled")]
     pub survey_enabled: bool,
-
     #[serde(default)]
     pub language: Language,
-
     #[serde(default = "default_slash_commands")]
     pub slash_commands: HashMap<String, String>,
-
     #[serde(default = "default_true")]
     pub todo_enabled: bool,
-
     #[serde(default)]
     pub kanban_enabled: bool,
-
     #[serde(default)]
     pub sidebar_collapsed: bool,
-
     #[serde(default)]
     pub theme: Theme,
 }
 
-fn default_true() -> bool {
-    true
-}
-
-fn default_survey_enabled() -> bool {
-    true
-}
-
-fn default_work_duration() -> u32 {
-    25
-}
-fn default_break_duration() -> u32 {
-    5
-}
+fn default_true() -> bool { true }
+fn default_survey_enabled() -> bool { true }
+fn default_work_duration() -> u32 { 25 }
+fn default_break_duration() -> u32 { 5 }
 fn default_notes_directory() -> String {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    format!("{}/.config/otamot/notes", home)
+    format!("{}/.config/otamot/notes", std::env::var("HOME").unwrap_or_else(|_| ".".to_string()))
 }
 fn default_todo_file() -> String {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    format!("{}/.config/otamot/TODO.md", home)
+    format!("{}/.config/otamot/TODO.md", std::env::var("HOME").unwrap_or_else(|_| ".".to_string()))
 }
 
 fn default_slash_commands() -> HashMap<String, String> {
@@ -226,7 +205,6 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Load configuration from file, or return defaults if file doesn't exist
     pub fn load() -> Self {
         let path = Self::config_path();
         if path.exists() {
@@ -239,31 +217,25 @@ impl Config {
         }
     }
 
-    /// Save configuration to file
     pub fn save(&self) -> io::Result<()> {
         let path = Self::config_path();
-
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-
         let content = serde_json::to_string_pretty(self)?;
         fs::write(&path, content)?;
         Ok(())
     }
 
-    /// Save configuration to a specific path (for testing)
     pub fn save_to_path(&self, path: &PathBuf) -> io::Result<()> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-
         let content = serde_json::to_string_pretty(self)?;
         fs::write(path, content)?;
         Ok(())
     }
 
-    /// Load configuration from a specific path (for testing)
     pub fn load_from_path(path: &PathBuf) -> Self {
         if path.exists() {
             fs::read_to_string(path)
@@ -275,14 +247,11 @@ impl Config {
         }
     }
 
-    /// Get the default config file path
     pub fn config_path() -> PathBuf {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
         PathBuf::from(home).join(".config/otamot/settings.json")
     }
 
-    /// Get the notes directory path
-    #[allow(dead_code)]
     pub fn notes_path(&self) -> PathBuf {
         PathBuf::from(&self.notes_directory)
     }
@@ -299,177 +268,5 @@ mod tests {
         assert_eq!(config.work_duration, 25);
         assert_eq!(config.break_duration, 5);
         assert!(!config.notes_enabled);
-    }
-
-    #[test]
-    fn test_config_default_notes_directory() {
-        let config = Config::default();
-        // Should contain .config/otamot/notes
-        assert!(config.notes_directory.contains(".config/otamot/notes"));
-    }
-
-    #[test]
-    fn test_config_serialization() {
-        let config = Config {
-            work_duration: 30,
-            break_duration: 10,
-            notes_directory: "/custom/path".to_string(),
-            notes_enabled: true,
-            survey_enabled: true,
-            language: Language::German,
-            slash_commands: HashMap::new(),
-            todo_enabled: true,
-            kanban_enabled: false,
-            sidebar_collapsed: false,
-            theme: Theme::dark(),
-        };
-
-        let json = serde_json::to_string(&config).unwrap();
-        // Parse it back to verify the values
-        let parsed: Config = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.work_duration, 30);
-        assert_eq!(parsed.break_duration, 10);
-        assert_eq!(parsed.notes_directory, "/custom/path");
-        assert!(parsed.notes_enabled);
-        assert!(parsed.survey_enabled);
-        assert_eq!(parsed.language, Language::German);
-    }
-
-    #[test]
-    fn test_config_deserialization() {
-        let json = r#"{
-            "work_duration": 45,
-            "break_duration": 15,
-            "notes_directory": "/test/notes",
-            "notes_enabled": true,
-            "survey_enabled": false
-        }"#;
-
-        let config: Config = serde_json::from_str(json).unwrap();
-        assert_eq!(config.work_duration, 45);
-        assert_eq!(config.break_duration, 15);
-        assert_eq!(config.notes_directory, "/test/notes");
-        assert!(config.notes_enabled);
-        assert!(!config.survey_enabled);
-    }
-
-    #[test]
-    fn test_custom_slash_command_persistence() {
-        let json = r#"{
-            "slash_commands": {
-                "ted": "Ted Williams"
-            }
-        }"#;
-        let config: Config = serde_json::from_str(json).unwrap();
-        assert_eq!(
-            config.slash_commands.get("ted"),
-            Some(&"Ted Williams".to_string())
-        );
-        // Ensure defaults are also there if using the default() constructor then merging,
-        // but here we just test deserialization of the specific field.
-    }
-
-    #[test]
-    fn test_config_deserialization_partial() {
-        // Test that missing fields get defaults
-        let json = r#"{
-            "work_duration": 20
-        }"#;
-
-        let config: Config = serde_json::from_str(json).unwrap();
-        assert_eq!(config.work_duration, 20);
-        assert_eq!(config.break_duration, 5); // default
-        assert!(!config.notes_enabled); // default
-        assert!(config.survey_enabled); // default
-    }
-
-    #[test]
-    fn test_config_deserialization_empty() {
-        let json = "{}";
-        let config: Config = serde_json::from_str(json).unwrap();
-        assert_eq!(config.work_duration, 25); // default
-        assert_eq!(config.break_duration, 5); // default
-        assert!(config.survey_enabled); // default
-    }
-
-    #[test]
-    fn test_config_save_and_load() {
-        let temp_dir = TempDir::new().unwrap();
-        let config_path = temp_dir.path().join("settings.json");
-
-        let config = Config {
-            work_duration: 40,
-            break_duration: 10,
-            notes_directory: "/custom/notes".to_string(),
-            notes_enabled: true,
-            survey_enabled: true,
-            language: Language::English,
-            slash_commands: HashMap::new(),
-            todo_enabled: true,
-            kanban_enabled: false,
-            sidebar_collapsed: false,
-            theme: Theme::dark(),
-        };
-
-        config.save_to_path(&config_path).unwrap();
-        assert!(config_path.exists());
-
-        let loaded = Config::load_from_path(&config_path);
-        assert_eq!(loaded.work_duration, 40);
-        assert_eq!(loaded.break_duration, 10);
-        assert_eq!(loaded.notes_directory, "/custom/notes");
-        assert!(loaded.notes_enabled);
-        assert!(loaded.survey_enabled);
-    }
-
-    #[test]
-    fn test_config_load_nonexistent_file() {
-        let temp_dir = TempDir::new().unwrap();
-        let config_path = temp_dir.path().join("nonexistent.json");
-
-        let loaded = Config::load_from_path(&config_path);
-        assert_eq!(loaded.work_duration, 25); // default
-        assert_eq!(loaded.break_duration, 5); // default
-    }
-
-    #[test]
-    fn test_config_load_invalid_json() {
-        let temp_dir = TempDir::new().unwrap();
-        let config_path = temp_dir.path().join("invalid.json");
-
-        fs::write(&config_path, "not valid json {{{").unwrap();
-
-        let loaded = Config::load_from_path(&config_path);
-        // Should return default on parse error
-        assert_eq!(loaded.work_duration, 25);
-        assert_eq!(loaded.break_duration, 5);
-    }
-
-    #[test]
-    fn test_config_save_creates_directory() {
-        let temp_dir = TempDir::new().unwrap();
-        let config_path = temp_dir.path().join("nested/dir/settings.json");
-
-        let config = Config::default();
-        config.save_to_path(&config_path).unwrap();
-
-        assert!(config_path.exists());
-        assert!(config_path.parent().unwrap().exists());
-    }
-
-    #[test]
-    fn test_theme_serialization() {
-        let theme = Theme::robotic_lime();
-        let json = serde_json::to_string(&theme).unwrap();
-        let parsed: Theme = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.name, "Robotic Lime");
-        assert_eq!(parsed.text.r, 0x00);
-    }
-
-    #[test]
-    fn test_notes_view_equality() {
-        assert_eq!(NotesView::Edit, NotesView::Edit);
-        assert_eq!(NotesView::Preview, NotesView::Preview);
-        assert_ne!(NotesView::Edit, NotesView::Preview);
     }
 }

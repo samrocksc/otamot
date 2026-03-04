@@ -172,8 +172,9 @@ impl PomodoroApp {
     fn render_sidebar(
         &mut self,
         ui: &mut egui::Ui,
-        text_color: egui::Color32,
+        _text_color: egui::Color32,
         button_color: egui::Color32,
+        button_text_color: egui::Color32,
         text_dim_color: egui::Color32,
     ) {
         ui.vertical(|ui| {
@@ -181,7 +182,7 @@ impl PomodoroApp {
             
             // Sidebar Toggle Arrow
             let arrow = if self.sidebar_collapsed { "▶" } else { "◀" };
-            if ui_components::icon_button(ui, arrow, text_color, button_color).clicked() {
+            if ui_components::icon_button(ui, arrow, button_text_color, button_color).clicked() {
                 self.sidebar_collapsed = !self.sidebar_collapsed;
                 self.config.sidebar_collapsed = self.sidebar_collapsed;
                 let _ = self.config.save();
@@ -191,7 +192,7 @@ impl PomodoroApp {
                 ui.add_space(20.0);
                 
                 // Settings button
-                if ui_components::rounded_button(ui, &self.t.settings_btn(), text_color, button_color).clicked() {
+                if ui_components::rounded_button(ui, &self.t.settings_btn(), button_text_color, button_color).clicked() {
                     self.temp_work_duration = self.config.work_duration;
                     self.temp_break_duration = self.config.break_duration;
                     self.temp_notes_directory = self.config.notes_directory.clone();
@@ -202,7 +203,7 @@ impl PomodoroApp {
                 ui.add_space(10.0);
                 
                 // Survey summary button
-                if ui_components::rounded_button(ui, &self.t.survey_summary_title(), text_color, button_color).clicked() {
+                if ui_components::rounded_button(ui, &self.t.survey_summary_title(), button_text_color, button_color).clicked() {
                     self.show_survey_summary = true;
                 }
 
@@ -213,7 +214,7 @@ impl PomodoroApp {
                 // Toggles
                 // Notes Toggle
                 let notes_label = if self.notes_enabled { self.t.notes_on() } else { self.t.notes_off() };
-                if ui_components::rounded_button(ui, &notes_label, text_color, button_color).clicked() {
+                if ui_components::rounded_button(ui, &notes_label, button_text_color, button_color).clicked() {
                     self.notes_enabled = !self.notes_enabled;
                     self.config.notes_enabled = self.notes_enabled;
                     let _ = self.config.save();
@@ -223,7 +224,7 @@ impl PomodoroApp {
                 
                 // TODO Toggle
                 let todo_label = if self.todo_enabled { self.t.todo_on() } else { self.t.todo_off() };
-                if ui_components::rounded_button(ui, &todo_label, text_color, button_color).clicked() {
+                if ui_components::rounded_button(ui, &todo_label, button_text_color, button_color).clicked() {
                     self.todo_enabled = !self.todo_enabled;
                     self.config.todo_enabled = self.todo_enabled;
                     let _ = self.config.save();
@@ -233,7 +234,7 @@ impl PomodoroApp {
                 
                 // Kanban Toggle
                 let kanban_label = if self.kanban_enabled { "KANBAN: ON" } else { "KANBAN: OFF" };
-                if ui_components::rounded_button(ui, kanban_label, text_color, button_color).clicked() {
+                if ui_components::rounded_button(ui, kanban_label, button_text_color, button_color).clicked() {
                     self.kanban_enabled = !self.kanban_enabled;
                     self.config.kanban_enabled = self.kanban_enabled;
                     let _ = self.config.save();
@@ -243,7 +244,7 @@ impl PomodoroApp {
                 ui.separator();
                 ui.add_space(10.0);
 
-                if ui_components::rounded_button(ui, &self.t.help_button(), text_color, button_color).clicked() {
+                if ui_components::rounded_button(ui, &self.t.help_button(), button_text_color, button_color).clicked() {
                     self.show_help = !self.show_help;
                 }
 
@@ -579,25 +580,40 @@ impl eframe::App for PomodoroApp {
         if self.notes_enabled && self.notes_view == NotesView::Edit {
             let is_focused = ctx.memory(|mem| mem.has_focus(egui::Id::new("notes_text_input")));
 
-            if is_focused && self.dropdown_visible && !self.dropdown_items.is_empty() {
-                // Dropdown keyboard navigation
-                if ctx.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
-                    self.dropdown_selected =
-                        (self.dropdown_selected + 1) % self.dropdown_items.len();
-                    ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown));
-                }
-                if ctx.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
-                    self.dropdown_selected = if self.dropdown_selected == 0 {
-                        self.dropdown_items.len() - 1
-                    } else {
-                        self.dropdown_selected - 1
-                    };
-                    ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp));
-                }
-                if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    let item = self.dropdown_items[self.dropdown_selected].clone();
-                    self.apply_dropdown_selection(item);
-                    ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+            if is_focused && self.dropdown_visible {
+                if !self.dropdown_items.is_empty() {
+                    // Dropdown keyboard navigation
+                    if ctx.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
+                        self.dropdown_selected =
+                            (self.dropdown_selected + 1) % self.dropdown_items.len();
+                        ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown));
+                    }
+                    if ctx.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
+                        self.dropdown_selected = if self.dropdown_selected == 0 {
+                            self.dropdown_items.len() - 1
+                        } else {
+                            self.dropdown_selected - 1
+                        };
+                        ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp));
+                    }
+                    if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        let item = self.dropdown_items[self.dropdown_selected].clone();
+                        self.apply_dropdown_selection(item);
+                        ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+                    }
+                } else if self.dropdown_type == DropdownType::Hashtag {
+                    // Handle Enter for new hashtag (not in library yet)
+                    if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        let byte_pos = self.get_notes_byte_pos();
+                        if let Some((_pos, tag)) =
+                            HashtagLibrary::find_hashtag_at_cursor(&self.notes_content, byte_pos)
+                        {
+                            if !tag.is_empty() {
+                                self.apply_dropdown_selection(tag);
+                                ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+                            }
+                        }
+                    }
                 }
             }
 
@@ -687,7 +703,14 @@ impl eframe::App for PomodoroApp {
             }
         }
 
-        // Global hotkey handling
+        // Check for early keyboard input for Enter in dropdown
+        if self.notes_enabled && self.notes_view == NotesView::Edit && self.dropdown_visible && !self.dropdown_items.is_empty() {
+             if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+                 let item = self.dropdown_items[self.dropdown_selected].clone();
+                 self.apply_dropdown_selection(item);
+                 ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+             }
+        }
         if ctx.input(|i| i.key_pressed(egui::Key::P) && i.modifiers.ctrl) && self.notes_enabled {
             if self.notes_view == NotesView::Edit {
                 self.notes_content = format_markdown(&self.notes_content);
@@ -846,13 +869,27 @@ impl eframe::App for PomodoroApp {
         let tab_active_color = egui::Color32::from_rgb(theme.tab_active.r, theme.tab_active.g, theme.tab_active.b);
         let tab_inactive_color = egui::Color32::from_rgb(theme.tab_inactive.r, theme.tab_inactive.g, theme.tab_inactive.b);
 
+        let theme_visuals = if theme.dark_mode {
+            egui::Visuals::dark()
+        } else {
+            let mut light = egui::Visuals::light();
+            light.widgets.inactive.bg_fill = egui::Color32::WHITE;
+            light.widgets.hovered.bg_fill = egui::Color32::from_gray(240);
+            light.widgets.active.bg_fill = egui::Color32::from_gray(230);
+            // Light grey border for text boxes in Monokai light
+            light.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_gray(200));
+            light
+        };
+
         ctx.set_visuals(egui::Visuals {
             window_fill: bg_color,
             panel_fill: bg_color,
             override_text_color: Some(text_color),
             hyperlink_color: tab_active_color,
-            ..if theme.dark_mode { egui::Visuals::dark() } else { egui::Visuals::light() }
+            ..theme_visuals
         });
+
+        let button_text_color = egui::Color32::from_rgb(theme.button_text.r, theme.button_text.g, theme.button_text.b);
 
         // Main UI Layout
         egui::CentralPanel::default()
@@ -881,6 +918,7 @@ impl eframe::App for PomodoroApp {
                                         ui,
                                         text_color,
                                         button_color,
+                                        button_text_color,
                                         text_dim_color,
                                     );
                                 });
@@ -908,7 +946,7 @@ impl eframe::App for PomodoroApp {
                                             bottom: 10.0,
                                         })
                                         .show(ui, |ui| {
-                                            self.render_right_column(
+                        self.render_right_column(
                                                 ctx,
                                                 ui,
                                                 text_color,
@@ -917,6 +955,7 @@ impl eframe::App for PomodoroApp {
                                                 tab_active_color,
                                                 tab_inactive_color,
                                                 button_color,
+                                                button_text_color,
                                                 work_color,
                                                 break_color,
                                                 bg_color,
@@ -937,6 +976,7 @@ impl eframe::App for PomodoroApp {
                                     ui,
                                     text_color,
                                     button_color,
+                                    button_text_color,
                                     work_color,
                                     break_color,
                                     text_dim_color,
@@ -948,9 +988,9 @@ impl eframe::App for PomodoroApp {
         });
 
         // Full-screen / Modal windows
-        self.show_settings_dialog(ctx, text_color, text_dim_color, button_color, tab_active_color);
+        self.show_settings_dialog(ctx, text_color, text_dim_color, button_color, button_text_color, tab_active_color);
         self.show_help_dialog(ctx, text_color, text_dim_color, button_color);
-        self.show_survey_dialog(ctx, text_color, text_dim_color, button_color, tab_active_color);
+        self.show_survey_dialog(ctx, text_color, text_dim_color, button_color, button_text_color, tab_active_color);
         self.show_survey_summary_dialog(ctx, text_color, text_dim_color, button_color);
     }
 }
@@ -958,11 +998,11 @@ impl eframe::App for PomodoroApp {
 // --- Extended Methods Implementation ---
 
 impl PomodoroApp {
-    fn apply_dropdown_selection(&mut self, selected_item: String) {
+    pub fn apply_dropdown_selection(&mut self, selected_item: String) {
         match self.dropdown_type {
             DropdownType::Command => {
                 if let Some(replacement) = self.command_manager.execute(&selected_item) {
-                    let cursor_pos = self.notes_content.len();
+                    let cursor_pos = self.get_notes_byte_pos();
                     self.notes_content = CommandManager::insert_command(
                         &self.notes_content,
                         cursor_pos,
@@ -974,7 +1014,7 @@ impl PomodoroApp {
                 }
             }
             DropdownType::Hashtag => {
-                let cursor_pos = self.notes_content.len();
+                let cursor_pos = self.get_notes_byte_pos();
                 self.notes_content = HashtagLibrary::insert_hashtag(
                     &self.notes_content,
                     cursor_pos,
@@ -1001,6 +1041,7 @@ impl PomodoroApp {
         active_color: egui::Color32,
         inactive_color: egui::Color32,
         button_color: egui::Color32,
+        button_text_color: egui::Color32,
         work_color: egui::Color32,
         break_color: egui::Color32,
         bg_color: egui::Color32,
@@ -1151,10 +1192,11 @@ impl PomodoroApp {
                     ui,
                     &mut self.todo_list,
                     &mut self.todo_input,
-                    &self.kanban_board,
+                    &mut self.kanban_board,
                     &self.t,
                     text_color,
                     button_color,
+                    button_text_color,
                 ) {
                     // Update global project file only
                     self.save_project_file();
@@ -1176,10 +1218,12 @@ impl PomodoroApp {
                     ui,
                     &mut self.kanban_board,
                     &mut self.kanban_input,
+                    &mut self.todo_list,
                     &self.t,
                     text_color,
                     bg_color,
                     inactive_color,
+                    button_text_color,
                 ) {
                     // Update global project file only
                     self.save_project_file();
@@ -1197,6 +1241,7 @@ impl PomodoroApp {
         ui: &mut egui::Ui,
         text_color: egui::Color32,
         button_color: egui::Color32,
+        button_text_color: egui::Color32,
         work_color: egui::Color32,
         break_color: egui::Color32,
         _text_dim_color: egui::Color32,
@@ -1222,11 +1267,11 @@ impl PomodoroApp {
                 } else {
                     self.t.start_button()
                 };
-                if ui_components::rounded_button(ui, &btn, text_color, button_color).clicked() {
+                if ui_components::rounded_button(ui, &btn, button_text_color, button_color).clicked() {
                     self.toggle_timer();
                 }
                 ui.add_space(10.0);
-                if ui_components::rounded_button(ui, &self.t.reset_button(), text_color, button_color)
+                if ui_components::rounded_button(ui, &self.t.reset_button(), button_text_color, button_color)
                     .clicked()
                 {
                     self.reset_timer();
@@ -1234,8 +1279,8 @@ impl PomodoroApp {
                 ui.add_space(10.0);
                 if ui_components::rounded_button(
                     ui,
-                    &self.t.button_skip().to_uppercase(),
-                    text_color,
+                    &self.t.button_skip_upper(),
+                    button_text_color,
                     button_color,
                 )
                 .clicked()
@@ -1244,26 +1289,26 @@ impl PomodoroApp {
                 }
             });
             ui.add_space(40.0);
-            if ui_components::rounded_button(ui, &self.t.settings_btn(), text_color, button_color).clicked() {
+            if ui_components::rounded_button(ui, &self.t.settings_btn(), button_text_color, button_color).clicked() {
                 self.temp_work_duration = self.config.work_duration;
                 self.temp_break_duration = self.config.break_duration;
                 self.temp_notes_directory = self.config.notes_directory.clone();
                 self.temp_theme = self.config.theme.clone();
                 self.show_settings = true;
             }
-            if ui_components::rounded_button(ui, &self.t.survey_summary_title(), text_color, button_color).clicked() {
+            if ui_components::rounded_button(ui, &self.t.survey_summary_title(), button_text_color, button_color).clicked() {
                 self.show_survey_summary = true;
             }
             ui.add_space(10.0);
             let notes_label = if self.notes_enabled { self.t.notes_on() } else { self.t.notes_off() };
-            if ui_components::rounded_button(ui, &notes_label, text_color, button_color).clicked() {
+            if ui_components::rounded_button(ui, &notes_label, button_text_color, button_color).clicked() {
                 self.notes_enabled = !self.notes_enabled;
                 self.config.notes_enabled = self.notes_enabled;
                 let _ = self.config.save();
             }
             ui.add_space(10.0);
             let todo_label = if self.todo_enabled { self.t.todo_on() } else { self.t.todo_off() };
-            if ui_components::rounded_button(ui, &todo_label, text_color, button_color).clicked() {
+            if ui_components::rounded_button(ui, &todo_label, button_text_color, button_color).clicked() {
                 self.todo_enabled = !self.todo_enabled;
                 self.config.todo_enabled = self.todo_enabled;
                 let _ = self.config.save();
@@ -1274,7 +1319,7 @@ impl PomodoroApp {
                     .size(12.0)
                     .color(_text_dim_color),
             );
-            if ui_components::rounded_button(ui, &self.t.help_button(), text_color, button_color).clicked() {
+            if ui_components::rounded_button(ui, &self.t.help_button(), button_text_color, button_color).clicked() {
                 self.show_help = true;
             }
         });
@@ -1354,6 +1399,7 @@ impl PomodoroApp {
         text_color: egui::Color32,
         text_dim_color: egui::Color32,
         button_color: egui::Color32,
+        button_text_color: egui::Color32,
         tab_active_color: egui::Color32,
     ) {
         if !self.show_settings {
@@ -1384,14 +1430,7 @@ impl PomodoroApp {
                                 .size(18.0)
                                 .color(text_dim_color),
                             );
-                            if ui_components::icon_button(ui, "-", text_color, button_color).clicked() {
-                                self.temp_work_duration =
-                                    self.temp_work_duration.saturating_sub(1).max(1);
-                            }
-                            if ui_components::icon_button(ui, "+", text_color, button_color).clicked() {
-                                self.temp_work_duration =
-                                    self.temp_work_duration.saturating_add(1).min(60);
-                            }
+                            ui.add(egui::Slider::new(&mut self.temp_work_duration, 1..=60).show_value(false));
                         });
                         ui.add_space(15.0);
                         ui.horizontal(|ui| {
@@ -1405,14 +1444,7 @@ impl PomodoroApp {
                                 .size(18.0)
                                 .color(text_dim_color),
                             );
-                            if ui_components::icon_button(ui, "-", text_color, button_color).clicked() {
-                                self.temp_break_duration =
-                                    self.temp_break_duration.saturating_sub(1).max(1);
-                            }
-                            if ui_components::icon_button(ui, "+", text_color, button_color).clicked() {
-                                self.temp_break_duration =
-                                    self.temp_break_duration.saturating_add(1).min(30);
-                            }
+                            ui.add(egui::Slider::new(&mut self.temp_break_duration, 1..=30).show_value(false));
                         });
                         ui.add_space(20.0);
                         ui.horizontal(|ui| {
@@ -1450,7 +1482,7 @@ impl PomodoroApp {
                         ui.horizontal(|ui| {
                             ui.add_space(40.0);
                             let survey_label = if self.config.survey_enabled { self.t.surveys_on() } else { self.t.surveys_off() };
-                            if ui_components::rounded_button(ui, &survey_label, text_color, button_color).clicked() {
+                            if ui_components::rounded_button(ui, &survey_label, button_text_color, button_color).clicked() {
                                 self.config.survey_enabled = !self.config.survey_enabled;
                                 let _ = self.config.save();
                             }
@@ -1458,7 +1490,7 @@ impl PomodoroApp {
                         ui.add_space(15.0);
                         ui.horizontal(|ui| {
                             ui.add_space(40.0);
-                            if ui_components::rounded_button(ui, &self.t.reset_survey_data_btn(), egui::Color32::from_rgb(0xe7, 0x4c, 0x3c), button_color).clicked() {
+                            if ui_components::rounded_button(ui, &self.t.reset_survey_data_btn(), button_text_color, button_color).clicked() {
                                 self.reset_survey_data();
                             }
                         });
@@ -1518,7 +1550,7 @@ impl PomodoroApp {
                         ui.add_space(40.0);
                         ui.horizontal(|ui| {
                             ui.add_space(40.0);
-                            if ui_components::rounded_button(ui, &self.t.button_cancel(), text_color, button_color).clicked() {
+                            if ui_components::rounded_button(ui, &self.t.button_cancel(), button_text_color, button_color).clicked() {
                                 self.show_settings = false;
                                 self.temp_work_duration = self.config.work_duration;
                                 self.temp_break_duration = self.config.break_duration;
@@ -1526,7 +1558,7 @@ impl PomodoroApp {
                                 self.temp_language = self.config.language;
                             }
                             ui.add_space(15.0);
-                            if ui_components::rounded_button(ui, &self.t.button_save(), text_color, tab_active_color).clicked() {
+                            if ui_components::rounded_button(ui, &self.t.button_save(), button_text_color, tab_active_color).clicked() {
                                 self.save_settings();
                                 self.show_settings = false;
                             }
@@ -1543,6 +1575,7 @@ impl PomodoroApp {
         text_color: egui::Color32,
         text_dim_color: egui::Color32,
         button_color: egui::Color32,
+        button_text_color: egui::Color32,
         tab_active_color: egui::Color32,
     ) {
         if !self.show_survey {
@@ -1618,10 +1651,10 @@ impl PomodoroApp {
                             );
                         }
                         ui.horizontal(|ui| {
-                            if ui_components::rounded_button(ui, &self.t.button_skip(), text_color, button_color).clicked() {
+                            if ui_components::rounded_button(ui, &self.t.button_skip(), button_text_color, button_color).clicked() {
                                 self.skip_survey();
                             }
-                            if ui_components::rounded_button(ui, &self.t.button_submit(), text_color, tab_active_color).clicked() {
+                            if ui_components::rounded_button(ui, &self.t.button_submit(), button_text_color, tab_active_color).clicked() {
                                 self.submit_survey();
                             }
                         });
