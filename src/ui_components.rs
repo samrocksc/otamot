@@ -407,8 +407,13 @@ pub fn render_kanban_board(
                         });
                         ui.add_space(5.0);
 
+                        let col_bg = Color32::from_rgb(
+                            bg_color.r().saturating_add(20),
+                            bg_color.g().saturating_add(20),
+                            bg_color.b().saturating_add(20),
+                        );
                         let frame = Frame::group(ui.style())
-                            .fill(bg_color)
+                            .fill(col_bg)
                             .inner_margin(4.0);
 
                         let (_, dropped_payload) = ui.dnd_drop_zone::<usize, ()>(frame, |ui| {

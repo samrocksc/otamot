@@ -177,8 +177,9 @@ impl PomodoroApp {
         ui.vertical(|ui| {
             ui.add_space(10.0);
             
-            // Hamburger Menu Button
-            if ui_components::icon_button(ui, "☰", text_color, button_color).clicked() {
+            // Sidebar Toggle Arrow
+            let arrow = if self.sidebar_collapsed { "▶" } else { "◀" };
+            if ui_components::icon_button(ui, arrow, text_color, button_color).clicked() {
                 self.sidebar_collapsed = !self.sidebar_collapsed;
                 self.config.sidebar_collapsed = self.sidebar_collapsed;
                 let _ = self.config.save();
@@ -474,6 +475,16 @@ impl PomodoroApp {
             .collect::<Vec<_>>()
             .join("\n");
 
+        // Filter out TODO and Kanban sections from saved notes
+        let mut notes_to_save = self.notes_content.clone();
+        if let Some(pos) = notes_to_save.find("# TODO") {
+            notes_to_save.truncate(pos);
+        }
+        if let Some(pos) = notes_to_save.find("# Kanban") {
+            notes_to_save.truncate(pos);
+        }
+        let notes_to_save = notes_to_save.trim();
+
         let frontmatter = format!(
             "---\ntitle: \"Pomodoro Session\"\ndate: {}\nstart_time: {}\nend_time: {}\nduration_minutes: {}\nmode: {}\nsessions_completed: {}\ntags:\n{}\n---\n\n",
             end_time.format("%Y-%m-%d %H:%M:%S"),
@@ -485,7 +496,7 @@ impl PomodoroApp {
             tags_yaml
         );
 
-        let content = format!("{}{}", frontmatter, self.notes_content);
+        let content = format!("{}{}", frontmatter, notes_to_save);
         if let Err(e) = std::fs::write(&filepath, &content) {
             eprintln!("Failed to save notes: {}", e);
         } else {
@@ -886,17 +897,6 @@ impl eframe::App for PomodoroApp {
                                             bottom: 10.0,
                                         })
                                         .show(ui, |ui| {
-                                            // Sync components from markdown before rendering column
-                                            // This ensures that manual edits in the notes editor propagate to UI
-                                            if let Some(pos) = self.notes_content.find("# TODO") {
-                                                let todo_part = &self.notes_content[pos..];
-                                                self.todo_list = TodoList::from_markdown(todo_part);
-                                            }
-                                            if let Some(pos) = self.notes_content.find("# Kanban") {
-                                                let kanban_part = &self.notes_content[pos..];
-                                                self.kanban_board = KanbanBoard::from_markdown(kanban_part);
-                                            }
-
                                             self.render_right_column(
                                                 ctx,
                                                 ui,
@@ -1055,16 +1055,6 @@ impl PomodoroApp {
                                 let output = self.editor.show(ui, &mut self.notes_content);
                                 if self.notes_content != old_notes {
                                     notes_changed = true;
-                                    
-                                    // Automatically save project if markdown contents updated via editor
-                                    if self.todo_enabled {
-                                        self.todo_list = TodoList::from_markdown(&self.notes_content);
-                                        let _ = self.todo_list.save_to_path(&self.config.todo_file);
-                                    }
-                                    if self.kanban_enabled {
-                                        self.kanban_board = KanbanBoard::from_markdown(&self.notes_content);
-                                        let _ = self.kanban_board.save_to_path(&self.config.todo_file);
-                                    }
                                 }
                                 
                                 let response = output.response.clone();
