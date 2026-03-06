@@ -355,176 +355,170 @@ pub fn render_kanban_board(
     let mut changed = false;
     ui.add_space(10.0);
     
-    egui::Frame::group(ui.style())
-        .fill(bg_color)
-        .rounding(egui::Rounding::same(8.0))
-        .inner_margin(egui::Margin::same(15.0))
-        .show(ui, |ui| {
-            ui.label(
-                egui::RichText::new("Kanban Board")
-                    .size(24.0)
-                    .color(text_color)
-                    .strong(),
-            );
-            ui.add_space(10.0);
+    ui.label(
+        egui::RichText::new("Kanban Board")
+            .size(24.0)
+            .color(text_color)
+            .strong(),
+    );
+    ui.add_space(10.0);
 
-            // Add Kanban item input
-            ui.horizontal(|ui| {
-                let response = ui.add(
-                    egui::TextEdit::singleline(kanban_input)
-                        .hint_text("Add new task...")
-                        .desired_width(ui.available_width() - 220.0),
+    // Add Kanban item input
+    ui.horizontal(|ui| {
+        let response = ui.add(
+            egui::TextEdit::singleline(kanban_input)
+                .hint_text("Add new task...")
+                .desired_width(ui.available_width() - 220.0),
+        );
+        if (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+            && !kanban_input.trim().is_empty()
+        {
+            let text = kanban_input.trim().to_string();
+            board.add_item(text.clone());
+            todo_list.add(text);
+            kanban_input.clear();
+            changed = true;
+            let _ = board.save();
+            let _ = todo_list.save();
+        }
+        if small_rounded_button(ui, &t.button_add(), button_text_color, Color32::from_rgb(0x27, 0xae, 0x60)).clicked() && !kanban_input.trim().is_empty() {
+            let text = kanban_input.trim().to_string();
+            board.add_item(text.clone());
+            todo_list.add(text);
+            kanban_input.clear();
+            changed = true;
+            let _ = board.save();
+            let _ = todo_list.save();
+        }
+
+        ui.add_space(5.0);
+        if small_rounded_button(ui, "Clear", button_text_color, Color32::from_rgb(0x0f, 0x34, 0x60)).clicked() {
+            kanban_input.clear();
+        }
+
+        ui.add_space(5.0);
+        if small_rounded_button(ui, "Clear Done", button_text_color, Color32::from_rgb(0xe7, 0x4c, 0x3c)).clicked() {
+            board.clear_done();
+            changed = true;
+            let _ = board.save();
+        }
+    });
+
+    ui.add_space(10.0);
+
+    let mut from_item_id = None;
+    let mut to_status = None;
+
+    let statuses = [
+        (KanbanStatus::Todo, "TODO"),
+        (KanbanStatus::InProgress, "IN PROGRESS"),
+        (KanbanStatus::Done, "DONE"),
+    ];
+
+    let column_width = (ui.available_width() - 20.0) / 3.0;
+
+    ui.horizontal_top(|ui| {
+        for (status, label) in statuses.iter() {
+            ui.vertical(|ui| {
+                ui.set_width(column_width);
+                ui.vertical_centered(|ui| {
+                    ui.label(
+                        egui::RichText::new(*label)
+                            .strong()
+                            .color(text_color),
+                    );
+                });
+                ui.add_space(5.0);
+
+                let col_bg = Color32::from_rgb(
+                    bg_color.r().saturating_add(8),
+                    bg_color.g().saturating_add(8),
+                    bg_color.b().saturating_add(8),
                 );
-                if (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
-                    && !kanban_input.trim().is_empty()
-                {
-                    let text = kanban_input.trim().to_string();
-                    board.add_item(text.clone());
-                    todo_list.add(text);
-                    kanban_input.clear();
-                    changed = true;
-                    let _ = board.save();
-                    let _ = todo_list.save();
-                }
-                if small_rounded_button(ui, &t.button_add(), button_text_color, Color32::from_rgb(0x27, 0xae, 0x60)).clicked() && !kanban_input.trim().is_empty() {
-                    let text = kanban_input.trim().to_string();
-                    board.add_item(text.clone());
-                    todo_list.add(text);
-                    kanban_input.clear();
-                    changed = true;
-                    let _ = board.save();
-                    let _ = todo_list.save();
-                }
+                let frame = Frame::group(ui.style())
+                    .fill(col_bg)
+                    .inner_margin(4.0);
 
-                ui.add_space(5.0);
-                if small_rounded_button(ui, "Clear", button_text_color, Color32::from_rgb(0x0f, 0x34, 0x60)).clicked() {
-                    kanban_input.clear();
-                }
+                let (_, dropped_payload) = ui.dnd_drop_zone::<usize, ()>(frame, |ui| {
+                    ui.set_min_height(250.0);
+                    ui.set_width(ui.available_width());
 
-                ui.add_space(5.0);
-                if small_rounded_button(ui, "Clear Done", button_text_color, Color32::from_rgb(0xe7, 0x4c, 0x3c)).clicked() {
-                    board.clear_done();
-                    changed = true;
-                    let _ = board.save();
-                }
-            });
+                    let items_in_col: Vec<_> = board
+                        .items
+                        .iter()
+                        .filter(|i| i.status == *status)
+                        .cloned()
+                        .collect();
 
-            ui.add_space(10.0);
+                    for item in items_in_col {
+                        let item_id = Id::new(("kanban_item", item.id));
+                        let response = ui
+                            .dnd_drag_source(item_id, item.id, |ui| {
+                                Frame::none()
+                                    .fill(item_bg_color)
+                                    .rounding(4.0)
+                                    .inner_margin(8.0)
+                                    .show(ui, |ui| {
+                                        ui.set_width(ui.available_width());
+                                        ui.horizontal(|ui| {
+                                            let wrapped = wrap_text(&item.text, 45);
+                                            ui.label(
+                                                egui::RichText::new(wrapped)
+                                                    .color(text_color),
+                                            );
+                                            ui.with_layout(
+                                                egui::Layout::right_to_left(
+                                                    egui::Align::Center,
+                                                ),
+                                                |ui| {
+                                                    if icon_button(ui, "❌", button_text_color, item_bg_color.linear_multiply(1.5)).clicked() {
+                                                        let text = item.text.clone();
+                                                        board.delete_item(item.id);
+                                                        // Link: find and remove from TODO
+                                                        let todo_ids: Vec<usize> = todo_list.active.iter()
+                                                            .filter(|t| t.text == text)
+                                                            .map(|t| t.id)
+                                                            .chain(todo_list.completed.iter()
+                                                                .filter(|t| t.text == text)
+                                                                .map(|t| t.id))
+                                                            .collect();
+                                                        for tid in todo_ids {
+                                                            todo_list.remove(tid);
+                                                        }
+                                                        changed = true;
+                                                        let _ = board.save();
+                                                        let _ = todo_list.save();
+                                                    }
+                                                },
+                                            );
+                                        });
+                                    });
+                            })
+                            .response;
 
-            let mut from_item_id = None;
-            let mut to_status = None;
-
-            let statuses = [
-                (KanbanStatus::Todo, "TODO"),
-                (KanbanStatus::InProgress, "IN PROGRESS"),
-                (KanbanStatus::Done, "DONE"),
-            ];
-
-            let column_width = (ui.available_width() - 20.0) / 3.0;
-
-            ui.horizontal_top(|ui| {
-                for (status, label) in statuses.iter() {
-                    ui.vertical(|ui| {
-                        ui.set_width(column_width);
-                        ui.vertical_centered(|ui| {
-                            ui.label(
-                                egui::RichText::new(*label)
-                                    .strong()
-                                    .color(text_color),
-                            );
-                        });
-                        ui.add_space(5.0);
-
-                        let col_bg = Color32::from_rgb(
-                            bg_color.r().saturating_add(8),
-                            bg_color.g().saturating_add(8),
-                            bg_color.b().saturating_add(8),
-                        );
-                        let frame = Frame::group(ui.style())
-                            .fill(col_bg)
-                            .inner_margin(4.0);
-
-                        let (_, dropped_payload) = ui.dnd_drop_zone::<usize, ()>(frame, |ui| {
-                            ui.set_min_height(250.0);
-                            ui.set_width(ui.available_width());
-
-                            let items_in_col: Vec<_> = board
-                                .items
-                                .iter()
-                                .filter(|i| i.status == *status)
-                                .cloned()
-                                .collect();
-
-                            for item in items_in_col {
-                                let item_id = Id::new(("kanban_item", item.id));
-                                let response = ui
-                                    .dnd_drag_source(item_id, item.id, |ui| {
-                                        Frame::none()
-                                            .fill(item_bg_color)
-                                            .rounding(4.0)
-                                            .inner_margin(8.0)
-                                            .show(ui, |ui| {
-                                                ui.set_width(ui.available_width());
-                                                ui.horizontal(|ui| {
-                                                    let wrapped = wrap_text(&item.text, 45);
-                                                    ui.label(
-                                                        egui::RichText::new(wrapped)
-                                                            .color(text_color),
-                                                    );
-                                                    ui.with_layout(
-                                                        egui::Layout::right_to_left(
-                                                            egui::Align::Center,
-                                                        ),
-                                                        |ui| {
-                                                            if icon_button(ui, "❌", button_text_color, item_bg_color.linear_multiply(1.5)).clicked() {
-                                                                let text = item.text.clone();
-                                                                board.delete_item(item.id);
-                                                                // Link: find and remove from TODO
-                                                                let todo_ids: Vec<usize> = todo_list.active.iter()
-                                                                    .filter(|t| t.text == text)
-                                                                    .map(|t| t.id)
-                                                                    .chain(todo_list.completed.iter()
-                                                                        .filter(|t| t.text == text)
-                                                                        .map(|t| t.id))
-                                                                    .collect();
-                                                                for tid in todo_ids {
-                                                                    todo_list.remove(tid);
-                                                                }
-                                                                changed = true;
-                                                                let _ = board.save();
-                                                                let _ = todo_list.save();
-                                                            }
-                                                        },
-                                                    );
-                                                });
-                                            });
-                                    })
-                                    .response;
-
-                                if let Some(dragged_id) = response.dnd_release_payload() {
-                                    from_item_id = Some(*dragged_id);
-                                    to_status = Some(status.clone());
-                                }
-                            }
-                        });
-
-                        if let Some(dragged_id) = dropped_payload {
+                        if let Some(dragged_id) = response.dnd_release_payload() {
                             from_item_id = Some(*dragged_id);
                             to_status = Some(status.clone());
                         }
-                    });
-
-                    if *status != KanbanStatus::Done {
-                        ui.separator();
                     }
+                });
+
+                if let Some(dragged_id) = dropped_payload {
+                    from_item_id = Some(*dragged_id);
+                    to_status = Some(status.clone());
                 }
             });
 
-            if let (Some(item_id), Some(status)) = (from_item_id, to_status) {
-                board.move_item(item_id, status);
-                changed = true;
-                let _ = board.save();
+            if *status != KanbanStatus::Done {
+                ui.separator();
             }
-        });
+        }
+    });
+
+    if let (Some(item_id), Some(status)) = (from_item_id, to_status) {
+        board.move_item(item_id, status);
+        changed = true;
+        let _ = board.save();
+    }
     changed
 }

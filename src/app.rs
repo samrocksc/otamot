@@ -341,8 +341,19 @@ impl PomodoroApp {
             &quit_item,
         ]);
 
-        // Just use a placeholder icon for now, real one should be loaded from assets
-        let icon = tray_icon::Icon::from_rgba(vec![0; 32 * 32 * 4], 32, 32).unwrap();
+        // Load real icon from assets
+        let icon = (|| {
+            let icon_bytes = include_bytes!("../assets/icon.png");
+            let img = image::load_from_memory(icon_bytes).ok()?;
+            let img = img.resize(32, 32, image::imageops::FilterType::Lanczos3);
+            let rgba = img.to_rgba8();
+            let (width, height) = rgba.dimensions();
+            tray_icon::Icon::from_rgba(rgba.into_raw(), width, height).ok()
+        })()
+        .unwrap_or_else(|| {
+            // Fallback to a solid red pixel if loading fails, so it's not transparent
+            tray_icon::Icon::from_rgba(vec![220, 20, 60, 255], 1, 1).unwrap()
+        });
 
         let tray_icon = TrayIconBuilder::new()
             .with_menu(Box::new(tray_menu))
