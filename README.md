@@ -16,15 +16,34 @@
 
 ## ✨ What is Otamot?
 
-**Otamot** is "tomato" spelled backwards — a fitting name for a fresh take on the [Pomodoro Technique](https://en.wikipedia.org/wiki/Pomodoro_Technique).
+**Otamot** is "tomato" spelled backwards — a fitting name for a fresh take on the [Pomodoro Technique](https://en.wikipedia.org/wiki/Pomodoro_Technique). 
 
-It's a simple, elegant timer that helps you:
+It's like the ultimate pizza of productivity, bros! Simple, elegant, and stays out of your way while you get in the zone.
+
+It helps you:
 - ⏱️ **Stay focused** with timed work sessions (default: 25 minutes)
 - ☕ **Take breaks** with automatic break timers (default: 5 minutes)
 - 📝 **Capture thoughts** in Markdown without leaving the app
 - 💾 **Auto-save notes** when your session ends
+- 🔔 **Get Notified** when it's time to chill or get back to it
 
-No clutter. No distractions. Just you and your work.
+---
+
+## 🍕 New in v0.7.1: The Cowabunga Update
+
+We've been busy in the lab (don't tell Donatello we borrowed his tools)! Here's the fresh toppings:
+
+- 🔔 **Desktop Notifications** — Get a shout-out on your desktop when the timer's up.
+- 📥 **Tray Icon** — Keep Otamot tucked away in your system tray like a hidden ninja.
+- 🎵 **Custom Bell Tunes** — Choose your vibe with customizable finish sounds.
+- ⌨️ **Pro Hotkeys** — New shortcuts to keep your hands on the keyboard and your head in the game.
+
+| Hotkey | Action |
+|--------|--------|
+| `Ctrl+P` | Toggle Preview |
+| `Cmd+,` | Open Settings |
+| `Ctrl+/` | Show Help |
+| `Ctrl+D` | Toggle Dashboard |
 
 ---
 
