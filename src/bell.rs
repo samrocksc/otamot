@@ -16,6 +16,8 @@ pub struct BellConfig {
     pub duration_ms: u64,
     /// Frequency of the bell in Hz (default: 880 = A5 note)
     pub frequency: f32,
+    /// The tune to play
+    pub tune: crate::config::BellTune,
 }
 
 impl Default for BellConfig {
@@ -25,6 +27,7 @@ impl Default for BellConfig {
             volume: 0.3,
             duration_ms: 500,
             frequency: 880.0, // A5 note - pleasant bell-like tone
+            tune: crate::config::BellTune::Default,
         }
     }
 }
@@ -69,21 +72,56 @@ impl Bell {
         }
 
         // Try to get a fresh output stream for each playback
-        // This is more reliable than keeping the stream alive
         if let Ok((_stream, stream_handle)) = OutputStream::try_default() {
-            // Create a sink for this sound
             if let Ok(sink) = Sink::try_new(&stream_handle) {
-                // Generate a bell-like sound using sine wave
-                let source = SineWave::new(self.config.frequency)
-                    .amplify(self.config.volume)
-                    .take_duration(Duration::from_millis(self.config.duration_ms))
-                    .fade_out(Duration::from_millis(200)); // Smooth fade out
+                match self.config.tune {
+                    crate::config::BellTune::Default => {
+                        let source = SineWave::new(self.config.frequency)
+                            .amplify(self.config.volume)
+                            .take_duration(Duration::from_millis(self.config.duration_ms))
+                            .fade_out(Duration::from_millis(200));
+                        sink.append(source);
+                    }
+                    crate::config::BellTune::LaCukaracha => {
+                        // Very simplified "La Cucaracha" with SineWaves
+                        // Frequencies for C4, F4, A4...
+                        let tune = [
+                            (261.63, 200), (261.63, 200), (261.63, 200), // C C C
+                            (349.23, 600), // F
+                            (440.00, 600), // A
+                            (261.63, 200), (261.63, 200), (261.63, 200), // C C C
+                            (349.23, 600), // F
+                            (440.00, 600), // A
+                            (349.23, 300), (349.23, 300),
+                            (329.63, 300), (329.63, 300),
+                            (293.66, 300), (293.66, 300),
+                            (261.63, 600), // C
+                        ];
+                        for (freq, ms) in tune {
+                            let source = SineWave::new(freq)
+                                .amplify(self.config.volume)
+                                .take_duration(Duration::from_millis(ms))
+                                .fade_out(Duration::from_millis(50));
+                            sink.append(source);
+                        }
+                    }
+                    crate::config::BellTune::IceCreamTruck => {
+                        // High pitched simple arpeggio
+                        let tune = [
+                            (523.25, 150), (659.25, 150), (783.99, 150), (1046.50, 300),
+                            (783.99, 150), (1046.50, 450),
+                        ];
+                        for (freq, ms) in tune {
+                            let source = SineWave::new(freq)
+                                .amplify(self.config.volume)
+                                .take_duration(Duration::from_millis(ms))
+                                .fade_out(Duration::from_millis(50));
+                            sink.append(source);
+                        }
+                    }
+                }
 
-                sink.append(source);
-                sink.detach(); // Let it play in the background
-
-                // Keep stream alive by leaking it
-                // This is a common pattern for one-shot sounds
+                sink.detach();
                 std::mem::forget(_stream);
             }
         }
@@ -122,6 +160,7 @@ mod tests {
             volume: 0.5,
             duration_ms: 1000,
             frequency: 440.0,
+            tune: crate::config::BellTune::Default,
         };
         bell.set_config(new_config.clone());
         assert_eq!(bell.config().enabled, false);

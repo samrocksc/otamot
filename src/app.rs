@@ -71,6 +71,7 @@ pub struct PomodoroApp {
 
     // Help menu
     show_help: bool,
+    show_about: bool,
 
     // TODO list
     todo_list: TodoList,
@@ -95,6 +96,12 @@ pub struct PomodoroApp {
     kanban_input: String,
 
     sidebar_collapsed: bool,
+
+    // Tray Icon
+    #[cfg(not(target_arch = "wasm32"))]
+    tray_icon: Option<tray_icon::TrayIcon>,
+    #[cfg(not(target_arch = "wasm32"))]
+    tray_menu_ids: std::collections::HashMap<String, tray_icon::menu::MenuId>,
 }
 
 impl PomodoroApp {
@@ -104,7 +111,7 @@ impl PomodoroApp {
         let survey_data = SurveyData::load();
         let bell = Bell::default();
 
-        Self {
+        let mut app = Self {
             mode: TimerMode::Work,
             remaining_seconds,
             is_running: false,
@@ -136,6 +143,7 @@ impl PomodoroApp {
             dropdown_selected: 0,
             dropdown_start_pos: 0,
             show_help: false,
+            show_about: false,
             todo_list: TodoList::load_from_path(&config.todo_file),
             todo_input: String::new(),
             todo_enabled: config.todo_enabled,
@@ -145,6 +153,11 @@ impl PomodoroApp {
             kanban_input: String::new(),
             sidebar_collapsed: config.sidebar_collapsed,
 
+            #[cfg(not(target_arch = "wasm32"))]
+            tray_icon: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            tray_menu_ids: std::collections::HashMap::new(),
+
             sessions_completed: survey_data.sessions_completed,
             show_survey: false,
             show_survey_summary: false,
@@ -152,7 +165,12 @@ impl PomodoroApp {
             survey_focus_rating: 5,
             survey_what_helped: String::new(),
             survey_what_hurt: String::new(),
-        }
+        };
+
+        #[cfg(not(target_arch = "wasm32"))]
+        app.setup_tray_icon();
+
+        app
     }
 
     fn get_notes_byte_pos(&self) -> usize {
@@ -344,6 +362,16 @@ impl PomodoroApp {
         self.session_end = None;
     }
 
+    pub fn send_notification(&self, title: &str, body: &str) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let _ = notify_rust::Notification::new()
+                .summary(title)
+                .body(body)
+                .show();
+        }
+    }
+
     fn skip_to_break(&mut self) {
         self.mode = TimerMode::Break;
         self.remaining_seconds = self.config.break_duration * 60;
@@ -383,6 +411,59 @@ impl PomodoroApp {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    fn setup_tray_icon(&mut self) {
+        use tray_icon::{
+            menu::{Menu, MenuItem, PredefinedMenuItem},
+            TrayIconBuilder,
+        };
+
+        let tray_menu = Menu::new();
+        let start_pause_item = MenuItem::new("Start/Pause", true, None);
+        let reset_item = MenuItem::new("Reset", true, None);
+        let quit_item = MenuItem::new("Quit", true, None);
+
+        self.tray_menu_ids
+            .insert("start_pause".to_string(), start_pause_item.id().clone());
+        self.tray_menu_ids
+            .insert("reset".to_string(), reset_item.id().clone());
+        self.tray_menu_ids
+            .insert("quit".to_string(), quit_item.id().clone());
+
+        let _ = tray_menu.append_items(&[
+            &start_pause_item,
+            &reset_item,
+            &PredefinedMenuItem::separator(),
+            &quit_item,
+        ]);
+
+        // Just use a placeholder icon for now, real one should be loaded from assets
+        let icon = tray_icon::Icon::from_rgba(vec![0; 32 * 32 * 4], 32, 32).unwrap();
+
+        let tray_icon = TrayIconBuilder::new()
+            .with_menu(Box::new(tray_menu))
+            .with_tooltip("Otamot")
+            .with_icon(icon)
+            .build()
+            .unwrap();
+
+        self.tray_icon = Some(tray_icon);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn handle_tray_events(&mut self) {
+        use tray_icon::menu::MenuEvent;
+        if let Ok(event) = MenuEvent::receiver().try_recv() {
+            if Some(&event.id) == self.tray_menu_ids.get("start_pause") {
+                self.toggle_timer();
+            } else if Some(&event.id) == self.tray_menu_ids.get("reset") {
+                self.reset_timer();
+            } else if Some(&event.id) == self.tray_menu_ids.get("quit") {
+                std::process::exit(0);
+            }
+        }
+    }
+
     fn tick(&mut self) {
         if !self.is_running {
             return;
@@ -396,6 +477,12 @@ impl PomodoroApp {
                 } else {
                     // Timer complete - switch modes
                     self.bell.play();
+
+                    let (title, body) = match self.mode {
+                        TimerMode::Work => ("Work Session Complete", "Time for a break!"),
+                        TimerMode::Break => ("Break Over", "Back to work!"),
+                    };
+                    self.send_notification(title, body);
 
                     let previous_mode = self.mode;
                     self.mode = match self.mode {
@@ -564,6 +651,24 @@ impl PomodoroApp {
 
 impl eframe::App for PomodoroApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        #[cfg(not(target_arch = "wasm32"))]
+        self.handle_tray_events();
+
+        egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
+            egui::menu::bar(ui, |ui| {
+                ui.menu_button(self.t.menu_help(), |ui| {
+                    if ui.button(self.t.help_button()).clicked() {
+                        self.show_help = true;
+                        ui.close_menu();
+                    }
+                    if ui.button(self.t.menu_about()).clicked() {
+                        self.show_about = true;
+                        ui.close_menu();
+                    }
+                });
+            });
+        });
+
         // Essential state updates
         self.tick();
         
@@ -711,6 +816,14 @@ impl eframe::App for PomodoroApp {
                  ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
              }
         }
+        if ctx.input(|i| i.key_pressed(egui::Key::Comma) && i.modifiers.command) {
+            self.reset_timer();
+        }
+
+        if ctx.input(|i| i.key_pressed(egui::Key::Period) && i.modifiers.command) {
+            self.toggle_timer();
+        }
+
         if ctx.input(|i| i.key_pressed(egui::Key::P) && i.modifiers.ctrl) && self.notes_enabled {
             if self.notes_view == NotesView::Edit {
                 self.notes_content = format_markdown(&self.notes_content);
@@ -990,6 +1103,7 @@ impl eframe::App for PomodoroApp {
         // Full-screen / Modal windows
         self.show_settings_dialog(ctx, text_color, text_dim_color, button_color, button_text_color, tab_active_color);
         self.show_help_dialog(ctx, text_color, text_dim_color, button_color);
+        self.show_about_dialog(ctx, text_color, text_dim_color, button_color);
         self.show_survey_dialog(ctx, text_color, text_dim_color, button_color, button_text_color, tab_active_color);
         self.show_survey_summary_dialog(ctx, text_color, text_dim_color, button_color);
     }
@@ -1022,7 +1136,7 @@ impl PomodoroApp {
                     &selected_item,
                 );
                 self.requested_cursor_pos =
-                    Some(self.dropdown_start_pos + selected_item.chars().count() + 1);
+                    Some(self.dropdown_start_pos + selected_item.chars().count() + 2);
                 self.hashtag_library.add(&selected_item);
             }
         }
@@ -1390,6 +1504,12 @@ impl PomodoroApp {
                                 });
                         });
                 });
+            // Ensure we handle mouse interaction correctly for standard egui Areas
+            if ui.input(|i| i.pointer.any_pressed()) && self.dropdown_visible {
+                 // We let the clicked() check above handle selection, 
+                 // but we need to make sure the Area doesn't block interaction 
+                 // if clicked outside (though Area usually doesn't unless modal)
+            }
         }
     }
 
@@ -1494,6 +1614,38 @@ impl PomodoroApp {
                                 self.reset_survey_data();
                             }
                         });
+                        ui.add_space(20.0);
+
+                        ui.horizontal(|ui| {
+                            ui.add_space(40.0);
+                            ui.label(
+                                egui::RichText::new(self.t.bell_tune_label())
+                                    .size(18.0)
+                                    .color(text_dim_color),
+                            );
+                        });
+                        ui.horizontal(|ui| {
+                            ui.add_space(60.0);
+                            ui.radio_value(&mut self.config.bell_tune, otamot::config::BellTune::Default, self.t.tune_default());
+                        });
+                        ui.horizontal(|ui| {
+                            ui.add_space(60.0);
+                            ui.radio_value(&mut self.config.bell_tune, otamot::config::BellTune::LaCukaracha, self.t.tune_cukaracha());
+                        });
+                        ui.horizontal(|ui| {
+                            ui.add_space(60.0);
+                            ui.radio_value(&mut self.config.bell_tune, otamot::config::BellTune::IceCreamTruck, self.t.tune_icecream());
+                        });
+
+                        // Update bell config immediately when changed in settings
+                        self.bell.set_config(otamot::bell::BellConfig {
+                            enabled: self.bell.config().enabled,
+                            volume: self.bell.config().volume,
+                            duration_ms: self.bell.config().duration_ms,
+                            frequency: self.bell.config().frequency,
+                            tune: self.config.bell_tune,
+                        });
+
                         ui.add_space(20.0);
                         ui.set_max_width(500.0);
                         ui.horizontal(|ui| {
@@ -1853,6 +2005,56 @@ impl PomodoroApp {
                         }
                     });
                 });
+        });
+    }
+
+    pub fn show_about_dialog(
+        &mut self,
+        ctx: &egui::Context,
+        text_color: egui::Color32,
+        _text_dim_color: egui::Color32,
+        button_color: egui::Color32,
+    ) {
+        if !self.show_about {
+            return;
+        }
+
+        let version = env!("CARGO_PKG_VERSION");
+        let release_date = "2026-03-05"; // For now, we manually set this
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(40.0);
+                ui.label(
+                    egui::RichText::new(self.t.about_title())
+                        .size(32.0)
+                        .color(text_color)
+                        .strong(),
+                );
+                ui.add_space(20.0);
+                ui.label(egui::RichText::new(self.t.about_description()).color(text_color));
+                ui.add_space(20.0);
+                ui.label(
+                    egui::RichText::new(self.t.about_version(version))
+                        .color(text_color),
+                );
+                ui.label(
+                    egui::RichText::new(self.t.about_release_date(release_date))
+                        .color(text_color),
+                );
+                ui.add_space(40.0);
+
+                if ui_components::rounded_button(
+                    ui,
+                    &self.t.button_close(),
+                    text_color,
+                    button_color,
+                )
+                .clicked()
+                {
+                    self.show_about = false;
+                }
+            });
         });
     }
 }

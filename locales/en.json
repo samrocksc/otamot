@@ -51,6 +51,10 @@
   "todays_average": "Today's Average:",
   "overall_average": "Overall Average:",
   "total_sessions": "Total Sessions:",
+  "bell_tune_label": "Bell Tune:",
+  "tune_default": "Default Bell",
+  "tune_cukaracha": "La Cucaracha",
+  "tune_icecream": "Ice Cream Truck",
   "helped_hint": "e.g., quiet room, coffee...",
   "hurt_hint": "e.g., noise, hunger...",
   "lang_en": "English",
@@ -75,5 +79,11 @@
   "todo_status": "{} pending, {} done",
   "todo_clear_completed_btn": "🗑 Clear Completed",
   "button_add": "Add",
-  "button_skip_upper": "SKIP"
+  "button_skip_upper": "SKIP",
+  "menu_help": "Help",
+  "menu_about": "About Otamot",
+  "about_title": "About Otamot",
+  "about_version": "Version: {}",
+  "about_release_date": "Released: {}",
+  "about_description": "Otamot is a cross-platform Pomodoro timer with notes support."
 }
