@@ -1953,6 +1953,8 @@ impl PomodoroApp {
                                 vec![
                                     ("Space", self.t.shortcut_start_pause()),
                                     ("R", self.t.shortcut_reset()),
+                                    ("Cmd/Ctrl + .", self.t.shortcut_start_pause()),
+                                    ("Cmd/Ctrl + ,", self.t.shortcut_reset()),
                                 ],
                             ),
                             (
@@ -1967,7 +1969,10 @@ impl PomodoroApp {
                             ),
                             (
                                 self.t.help_general_title(),
-                                vec![("Ctrl+?", self.t.shortcut_toggle_help())],
+                                vec![
+                                    ("Ctrl+?", self.t.shortcut_toggle_help()),
+                                    ("Cmd/Ctrl + Shift + /", self.t.shortcut_toggle_help()),
+                                ],
                             ),
                         ];
                         for (title, list) in shortcuts {
