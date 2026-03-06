@@ -16,6 +16,7 @@ use otamot::survey::SurveyData;
 use otamot::timer::TimerMode;
 use otamot::todo::TodoList;
 use otamot::ui_components;
+use otamot::ui::{sidebar::Sidebar, timer::{TimerView, TimerAction}, notes::{NotesEditor, NotesAction}};
 
 /// Dropdown state for autocomplete
 #[derive(Debug, Clone, PartialEq)]
@@ -195,85 +196,27 @@ impl PomodoroApp {
         button_text_color: egui::Color32,
         text_dim_color: egui::Color32,
     ) {
-        ui.vertical(|ui| {
-            ui.add_space(10.0);
-            
-            // Sidebar Toggle Arrow
-            let arrow = if self.sidebar_collapsed { "▶" } else { "◀" };
-            if ui_components::icon_button(ui, arrow, button_text_color, button_color).clicked() {
-                self.sidebar_collapsed = !self.sidebar_collapsed;
-                self.config.sidebar_collapsed = self.sidebar_collapsed;
-                let _ = self.config.save();
-            }
-
-            if !self.sidebar_collapsed {
-                ui.add_space(20.0);
-                
-                // Settings button
-                if ui_components::rounded_button(ui, &self.t.settings_btn(), button_text_color, button_color).clicked() {
-                    self.temp_work_duration = self.config.work_duration;
-                    self.temp_break_duration = self.config.break_duration;
-                    self.temp_notes_directory = self.config.notes_directory.clone();
-                    self.temp_theme = self.config.theme.clone();
-                    self.show_settings = true;
-                }
-                
-                ui.add_space(10.0);
-                
-                // Survey summary button
-                if ui_components::rounded_button(ui, &self.t.survey_summary_title(), button_text_color, button_color).clicked() {
-                    self.show_survey_summary = true;
-                }
-
-                ui.add_space(30.0);
-                ui.separator();
-                ui.add_space(10.0);
-
-                // Toggles
-                // Notes Toggle
-                let notes_label = if self.notes_enabled { self.t.notes_on() } else { self.t.notes_off() };
-                if ui_components::rounded_button(ui, &notes_label, button_text_color, button_color).clicked() {
-                    self.notes_enabled = !self.notes_enabled;
-                    self.config.notes_enabled = self.notes_enabled;
-                    let _ = self.config.save();
-                }
-
-                ui.add_space(10.0);
-                
-                // TODO Toggle
-                let todo_label = if self.todo_enabled { self.t.todo_on() } else { self.t.todo_off() };
-                if ui_components::rounded_button(ui, &todo_label, button_text_color, button_color).clicked() {
-                    self.todo_enabled = !self.todo_enabled;
-                    self.config.todo_enabled = self.todo_enabled;
-                    let _ = self.config.save();
-                }
-
-                ui.add_space(10.0);
-                
-                // Kanban Toggle
-                let kanban_label = if self.kanban_enabled { "KANBAN: ON" } else { "KANBAN: OFF" };
-                if ui_components::rounded_button(ui, kanban_label, button_text_color, button_color).clicked() {
-                    self.kanban_enabled = !self.kanban_enabled;
-                    self.config.kanban_enabled = self.kanban_enabled;
-                    let _ = self.config.save();
-                }
-
-                ui.add_space(20.0);
-                ui.separator();
-                ui.add_space(10.0);
-
-                if ui_components::rounded_button(ui, &self.t.help_button(), button_text_color, button_color).clicked() {
-                    self.show_help = !self.show_help;
-                }
-
-                ui.add_space(10.0);
-                ui.label(
-                    egui::RichText::new(self.t.sessions_completed_label(self.sessions_completed))
-                        .size(12.0)
-                        .color(text_dim_color),
-                );
-            }
-        });
+        let mut sidebar = Sidebar {
+            sidebar_collapsed: &mut self.sidebar_collapsed,
+            notes_enabled: &mut self.notes_enabled,
+            todo_enabled: &mut self.todo_enabled,
+            kanban_enabled: &mut self.kanban_enabled,
+            show_settings: &mut self.show_settings,
+            show_survey_summary: &mut self.show_survey_summary,
+            show_help: &mut self.show_help,
+            sessions_completed: self.sessions_completed,
+            t: &self.t,
+            config: &mut self.config,
+        };
+        sidebar.show(ui, button_color, button_text_color, text_dim_color);
+        
+        // Handle side effects that couldn't be moved easily or need local state
+        if self.show_settings {
+            self.temp_work_duration = self.config.work_duration;
+            self.temp_break_duration = self.config.break_duration;
+            self.temp_notes_directory = self.config.notes_directory.clone();
+            self.temp_theme = self.config.theme.clone();
+        }
     }
 
     fn render_timer(
@@ -284,63 +227,24 @@ impl PomodoroApp {
         work_color: egui::Color32,
         break_color: egui::Color32,
     ) {
-        ui.horizontal(|ui| {
-            ui.add_space(10.0);
-            
-            // Timer Display
-            ui.label(
-                egui::RichText::new(self.format_time())
-                    .size(48.0)
-                    .color(text_color),
-            );
-            
-            ui.add_space(20.0);
-            
-            let (mode_label, mode_color) = match self.mode {
-                TimerMode::Work => (self.t.timer_work(), work_color),
-                TimerMode::Break => (self.t.timer_break(), break_color),
-            };
-            ui.label(egui::RichText::new(mode_label).size(20.0).color(mode_color));
-            
-            ui.add_space(30.0);
-            
-            // Timer Controls
-            let label = if self.is_running {
-                self.t.pause_button()
-            } else {
-                self.t.start_button()
-            };
-            if ui_components::rounded_button(ui, &label, text_color, button_color).clicked() {
-                self.toggle_timer();
-            }
-            ui.add_space(8.0);
-            if ui_components::rounded_button(ui, &self.t.reset_button(), text_color, button_color).clicked()
-            {
-                self.reset_timer();
-            }
-            ui.add_space(8.0);
-            if ui_components::rounded_button(
-                ui,
-                &self.t.button_skip().to_uppercase(),
-                text_color,
-                button_color,
-            )
-            .clicked()
-            {
-                self.skip_to_break();
-            }
+        let timer_view = TimerView {
+            is_running: self.is_running,
+            mode: self.mode,
+            time_formatted: self.format_time(),
+            sessions_completed: self.sessions_completed,
+            notes_enabled: self.notes_enabled,
+            has_notes_content: !self.notes_content.is_empty(),
+            t: &self.t,
+        };
 
-            if self.notes_enabled && !self.notes_content.is_empty() {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.add_space(10.0);
-                    if ui_components::small_rounded_button(ui, &self.t.save_notes_btn(), text_color, egui::Color32::from_rgb(0x27, 0xae, 0x60)).clicked() {
-                        self.save_notes();
-                    }
-                });
+        if let Some(action) = timer_view.show(ui, text_color, button_color, work_color, break_color) {
+            match action {
+                TimerAction::Toggle => self.toggle_timer(),
+                TimerAction::Reset => self.reset_timer(),
+                TimerAction::Skip => self.skip_to_break(),
+                TimerAction::SaveNotes => self.save_notes(),
             }
-        });
-        ui.add_space(10.0);
-        ui.separator();
+        }
     }
 
     fn toggle_timer(&mut self) {
@@ -636,14 +540,6 @@ impl PomodoroApp {
             };
         }
         self.show_settings = false;
-    }
-
-    /// Helper for markdown rendering
-    fn render_markdown_preview(&self, ui: &mut egui::Ui) {
-        let theme = &self.config.theme;
-        let text_color = egui::Color32::from_rgb(theme.text.r, theme.text.g, theme.text.b);
-        let bg_color = egui::Color32::from_rgb(theme.bg.r, theme.bg.g, theme.bg.b);
-        ui_components::render_markdown_preview(ui, &self.notes_content, text_color, bg_color);
     }
 }
 
@@ -1160,136 +1056,48 @@ impl PomodoroApp {
         break_color: egui::Color32,
         bg_color: egui::Color32,
     ) {
-        let mut notes_changed = false;
-
         // Render Timer at the top of the right column
         self.render_timer(ui, text_color, button_color, work_color, break_color);
 
         // Render notes section if enabled
         if self.notes_enabled {
-            egui::Frame::group(ui.style())
-                .fill(bg_color)
-                .rounding(egui::Rounding::same(8.0))
-                .inner_margin(egui::Margin::same(15.0))
-                .show(ui, |ui| {
-                    ui.vertical(|ui| {
-                        // Tab buttons
-                        ui.horizontal(|ui| {
-                            let edit_color = if self.notes_view == NotesView::Edit {
-                                active_color
-                            } else {
-                                inactive_color
-                            };
-                            let edit_text_color = if self.notes_view == NotesView::Edit {
-                                text_highlight_color
-                            } else {
-                                text_color
-                            };
+            let mut editor = NotesEditor {
+                view: &mut self.notes_view,
+                content: &mut self.notes_content,
+                project_content: &mut self.project_content,
+                focus_input: &mut self.focus_notes_input,
+                notes_cursor_pos: &mut self.notes_cursor_pos,
+                requested_cursor_pos: &mut self.requested_cursor_pos,
+                editor: &mut self.editor,
+                t: &self.t,
+            };
 
-                            let preview_color = if self.notes_view == NotesView::Preview {
-                                active_color
-                            } else {
-                                inactive_color
-                            };
-                            let preview_text_color = if self.notes_view == NotesView::Preview {
-                                text_highlight_color
-                            } else {
-                                text_color
-                            };
+            let todo_file = self.config.todo_file.clone();
+            let response = editor.show(
+                ctx,
+                ui,
+                text_color,
+                active_color,
+                inactive_color,
+                text_highlight_color,
+                bg_color,
+                &todo_file,
+            );
+            
+            if let Some(action) = response.action {
+                match action {
+                    NotesAction::NotesChanged => {
+                        let _ = notes::save_draft(&self.config.notes_directory, &self.notes_content);
+                    }
+                    NotesAction::SaveNotes => {
+                        self.save_notes();
+                    }
+                }
+            }
 
-                            let project_active = self.notes_view == NotesView::Project;
-                            let project_color = if project_active { active_color } else { inactive_color };
-                            let project_text_color = if project_active { text_highlight_color } else { text_color };
-
-                            if ui_components::small_rounded_button(ui, &self.t.edit_tab(), edit_text_color, edit_color).clicked() {
-                                self.notes_view = NotesView::Edit;
-                                self.focus_notes_input = true;
-                            }
-                            
-                            ui.add_space(5.0);
-
-                            if ui_components::small_rounded_button(ui, &self.t.preview_tab(), preview_text_color, preview_color).clicked() {
-                                self.notes_view = NotesView::Preview;
-                            }
-
-                            ui.add_space(5.0);
-
-                            if ui_components::small_rounded_button(ui, "Project", project_text_color, project_color).clicked() {
-                                self.notes_view = NotesView::Project;
-                                self.project_content = std::fs::read_to_string(&self.config.todo_file).unwrap_or_default();
-                                self.focus_notes_input = true;
-                            }
-                        });
-
-                        ui.add_space(5.0);
-                        match self.notes_view {
-                            NotesView::Edit => {
-                                if self.focus_notes_input {
-                                    ctx.memory_mut(|mem| mem.request_focus(egui::Id::new("notes_text_input")));
-                                    self.focus_notes_input = false;
-                                }
-
-                                let old_notes = self.notes_content.clone();
-                                let output = self.editor.show(ui, &mut self.notes_content);
-                                if self.notes_content != old_notes {
-                                    notes_changed = true;
-                                }
-                                
-                                let response = output.response.clone();
-
-                                // Track cursor position for Tab handling
-                                if let Some(state) = egui::TextEdit::load_state(ui.ctx(), response.id) {
-                                    if let Some(range) = state.cursor.char_range() {
-                                        self.notes_cursor_pos = range.primary.index;
-                                    }
-                                }
-
-                                if let Some(pos) = self.requested_cursor_pos.take() {
-                                    if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), response.id) {
-                                        state
-                                            .cursor
-                                            .set_char_range(Some(egui::text::CCursorRange::one(
-                                                egui::text::CCursor::new(pos),
-                                            )));
-                                        state.store(ui.ctx(), response.id);
-                                        self.notes_cursor_pos = pos;
-                                    }
-                                }
-
-                                self.render_dropdown(ui, &output);
-                            }
-                            NotesView::Preview => {
-                                self.render_markdown_preview(ui);
-                            }
-                            NotesView::Project => {
-                                if self.focus_notes_input {
-                                    ctx.memory_mut(|mem| mem.request_focus(egui::Id::new("todo_text_input")));
-                                    self.focus_notes_input = false;
-                                }
-
-                                let old_project = self.project_content.clone();
-                                ui.add(
-                                    egui::TextEdit::multiline(&mut self.project_content)
-                                        .id(egui::Id::new("todo_text_input"))
-                                        .desired_width(f32::INFINITY)
-                                        .desired_rows(12)
-                                        .font(egui::TextStyle::Monospace)
-                                        .lock_focus(true)
-                                );
-
-                                if self.project_content != old_project {
-                                    // Save Project file
-                                    let path = std::path::PathBuf::from(&self.config.todo_file);
-                                    let _ = std::fs::write(path, &self.project_content);
-                                    
-                                    // Sync UI objects
-                                    self.todo_list = TodoList::from_markdown(&self.project_content);
-                                    self.kanban_board = KanbanBoard::from_markdown(&self.project_content);
-                                }
-                            }
-                        }
-                    });
-                });
+            if let Some(output) = response.output {
+                self.render_dropdown(ui, &output);
+            }
         }
 
         // Render TODO section if enabled
@@ -1302,19 +1110,19 @@ impl PomodoroApp {
                 .rounding(egui::Rounding::same(8.0))
                 .inner_margin(egui::Margin::same(15.0))
                 .show(ui, |ui| {
-                if ui_components::render_todo_panel(
-                    ui,
-                    &mut self.todo_list,
-                    &mut self.todo_input,
-                    &mut self.kanban_board,
-                    &self.t,
-                    text_color,
-                    button_color,
-                    button_text_color,
-                ) {
-                    // Update global project file only
-                    self.save_project_file();
-                }
+                    if ui_components::render_todo_panel(
+                        ui,
+                        &mut self.todo_list,
+                        &mut self.todo_input,
+                        &mut self.kanban_board,
+                        &self.t,
+                        text_color,
+                        button_color,
+                        button_text_color,
+                    ) {
+                        // Update global project file only
+                        self.save_project_file();
+                    }
                 });
         }
 
@@ -1328,25 +1136,21 @@ impl PomodoroApp {
                 .rounding(egui::Rounding::same(8.0))
                 .inner_margin(egui::Margin::same(15.0))
                 .show(ui, |ui| {
-                if ui_components::render_kanban_board(
-                    ui,
-                    &mut self.kanban_board,
-                    &mut self.kanban_input,
-                    &mut self.todo_list,
-                    &self.t,
-                    text_color,
-                    bg_color,
-                    inactive_color,
-                    button_text_color,
-                ) {
-                    // Update global project file only
-                    self.save_project_file();
-                }
-            });
-        }
-
-        if notes_changed {
-             let _ = notes::save_draft(&self.config.notes_directory, &self.notes_content);
+                    if ui_components::render_kanban_board(
+                        ui,
+                        &mut self.kanban_board,
+                        &mut self.kanban_input,
+                        &mut self.todo_list,
+                        &self.t,
+                        text_color,
+                        bg_color,
+                        inactive_color,
+                        button_text_color,
+                    ) {
+                        // Update global project file only
+                        self.save_project_file();
+                    }
+                });
         }
     }
 
