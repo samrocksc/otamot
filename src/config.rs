@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
-use chrono::Local;
 
 /// Represents the current view for notes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -158,7 +157,22 @@ pub struct Config {
     #[serde(default)]
     pub sidebar_collapsed: bool,
     #[serde(default)]
+    pub bell_tune: BellTune,
+    #[serde(default)]
     pub theme: Theme,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BellTune {
+    Default,
+    LaCukaracha,
+    IceCreamTruck,
+}
+
+impl Default for BellTune {
+    fn default() -> Self {
+        Self::Default
+    }
 }
 
 fn default_true() -> bool { true }
@@ -199,6 +213,7 @@ impl Default for Config {
             todo_enabled: true,
             kanban_enabled: false,
             sidebar_collapsed: false,
+            bell_tune: BellTune::Default,
             theme: Theme::robotic_lime(),
         }
     }
@@ -260,7 +275,6 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
 
     #[test]
     fn test_config_default() {

@@ -190,6 +190,20 @@ impl T {
     pub fn total_sessions(&self) -> String {
         self.get("total_sessions")
     }
+
+    pub fn bell_tune_label(&self) -> String {
+        self.get("bell_tune_label")
+    }
+    pub fn tune_default(&self) -> String {
+        self.get("tune_default")
+    }
+    pub fn tune_cukaracha(&self) -> String {
+        self.get("tune_cukaracha")
+    }
+    pub fn tune_icecream(&self) -> String {
+        self.get("tune_icecream")
+    }
+
     pub fn survey_hint(&self) -> String {
         self.get("survey_hint")
     }
@@ -273,5 +287,24 @@ impl T {
     }
     pub fn button_skip_upper(&self) -> String {
         self.get("button_skip_upper")
+    }
+
+    pub fn menu_help(&self) -> String {
+        self.get("menu_help")
+    }
+    pub fn menu_about(&self) -> String {
+        self.get("menu_about")
+    }
+    pub fn about_title(&self) -> String {
+        self.get("about_title")
+    }
+    pub fn about_version(&self, version: &str) -> String {
+        self.get("about_version").replace("{}", version)
+    }
+    pub fn about_release_date(&self, date: &str) -> String {
+        self.get("about_release_date").replace("{}", date)
+    }
+    pub fn about_description(&self) -> String {
+        self.get("about_description")
     }
 }
