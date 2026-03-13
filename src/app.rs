@@ -1056,6 +1056,13 @@ impl eframe::App for PomodoroApp {
         self.show_survey_dialog(ctx, text_color, text_dim_color, button_color, button_text_color, tab_active_color);
         self.show_survey_summary_dialog(ctx, text_color, text_dim_color, button_color);
     }
+
+    /// Disable egui memory persistence to prevent segfaults when switching between
+    /// monitors with different DPIs (e.g., Retina to non-Retina displays).
+    /// This prevents window position/size corruption when the screen resolution changes.
+    fn persist_egui_memory(&self) -> bool {
+        false
+    }
 }
 
 // --- Extended Methods Implementation ---
@@ -1919,12 +1926,5 @@ impl PomodoroApp {
                 }
             });
         });
-    }
-
-    /// Disable egui memory persistence to prevent segfaults when switching between
-    /// monitors with different DPIs (e.g., Retina to non-Retina displays).
-    /// This prevents window position/size corruption when the screen resolution changes.
-    fn persist_egui_memory(&self) -> bool {
-        false
     }
 }

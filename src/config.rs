@@ -63,6 +63,23 @@ impl Default for Theme {
 }
 
 impl Theme {
+    pub fn light() -> Self {
+        Self {
+            name: "Light".to_string(),
+            dark_mode: false,
+            text: CustomColor::new(0x2d, 0x2d, 0x2d),
+            text_dim: CustomColor::new(0x88, 0x88, 0x88),
+            text_highlight: CustomColor::new(0x2d, 0x2d, 0x2d),
+            button_text: CustomColor::new(0xff, 0xff, 0xff),
+            work: CustomColor::new(0xe7, 0x4c, 0x3c),
+            b_break: CustomColor::new(0x27, 0xae, 0x60),
+            button: CustomColor::new(0x3b, 0x82, 0xf6),
+            bg: CustomColor::new(0xff, 0xff, 0xff),
+            tab_active: CustomColor::new(0x3b, 0x82, 0xf6),
+            tab_inactive: CustomColor::new(0xe5, 0xe7, 0xeb),
+        }
+    }
+
     pub fn dark() -> Self {
         Self {
             name: "Dark".to_string(),
