@@ -81,9 +81,17 @@ impl<'a> NotesEditor<'a> {
                                 *self.focus_input = false;
                             }
 
+                            // Handle CMD/CTRL+S hotkey for saving notes
+                            let save_shortcut_pressed = ctx.input(|i| {
+                                i.key_pressed(egui::Key::S) && i.modifiers.command
+                            });
+                            if save_shortcut_pressed {
+                                action = Some(NotesAction::SaveNotes);
+                            }
+
                             let old_notes = self.content.clone();
                             let output = self.editor.show(ui, self.content);
-                            if *self.content != old_notes {
+                            if *self.content != old_notes && action.is_none() {
                                 action = Some(NotesAction::NotesChanged);
                             }
                             
