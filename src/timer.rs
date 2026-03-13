@@ -118,6 +118,18 @@ pub fn format_time(seconds: u32) -> String {
     format!("{:02}:{:02}", minutes, secs)
 }
 
+/// Format call time (counting up) - shows HH:MM:SS for calls over an hour, otherwise MM:SS
+pub fn format_call_time(seconds: u32) -> String {
+    let hours = seconds / 3600;
+    let minutes = (seconds % 3600) / 60;
+    let secs = seconds % 60;
+    if hours > 0 {
+        format!("{:02}:{:02}:{:02}", hours, minutes, secs)
+    } else {
+        format!("{:02}:{:02}", minutes, secs)
+    }
+}
+
 /// Parse a time string (MM:SS) into seconds
 pub fn parse_time(time_str: &str) -> Option<u32> {
     let parts: Vec<&str> = time_str.split(':').collect();
@@ -127,6 +139,59 @@ pub fn parse_time(time_str: &str) -> Option<u32> {
     let minutes: u32 = parts[0].parse().ok()?;
     let seconds: u32 = parts[1].parse().ok()?;
     Some(minutes * 60 + seconds)
+}
+
+/// Call mode state for tracking call duration
+#[derive(Debug, Clone)]
+pub struct CallState {
+    pub is_active: bool,
+    pub elapsed_seconds: u32,
+    pub start_time: Option<chrono::DateTime<chrono::Local>>,
+}
+
+impl Default for CallState {
+    fn default() -> Self {
+        Self {
+            is_active: false,
+            elapsed_seconds: 0,
+            start_time: None,
+        }
+    }
+}
+
+impl CallState {
+    /// Create a new call state
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Start a call
+    pub fn start(&mut self) {
+        self.is_active = true;
+        self.elapsed_seconds = 0;
+        self.start_time = Some(chrono::Local::now());
+    }
+
+    /// End a call and return the duration in seconds
+    pub fn end(&mut self) -> u32 {
+        let duration = self.elapsed_seconds;
+        self.is_active = false;
+        self.elapsed_seconds = 0;
+        self.start_time = None;
+        duration
+    }
+
+    /// Increment the elapsed time by one second
+    pub fn tick(&mut self) {
+        if self.is_active {
+            self.elapsed_seconds += 1;
+        }
+    }
+
+    /// Format elapsed time as HH:MM:SS for calls longer than an hour, or MM:SS otherwise
+    pub fn format_time(&self) -> String {
+        format_call_time(self.elapsed_seconds)
+    }
 }
 
 #[cfg(test)]
@@ -328,5 +393,97 @@ mod tests {
         assert_eq!(TimerMode::Work, TimerMode::Work);
         assert_eq!(TimerMode::Break, TimerMode::Break);
         assert_ne!(TimerMode::Work, TimerMode::Break);
+    }
+
+    #[test]
+    fn test_call_state_default() {
+        let state = CallState::default();
+        assert!(!state.is_active);
+        assert_eq!(state.elapsed_seconds, 0);
+        assert!(state.start_time.is_none());
+    }
+
+    #[test]
+    fn test_call_state_new() {
+        let state = CallState::new();
+        assert!(!state.is_active);
+        assert_eq!(state.elapsed_seconds, 0);
+    }
+
+    #[test]
+    fn test_call_state_start() {
+        let mut state = CallState::new();
+        state.start();
+        assert!(state.is_active);
+        assert_eq!(state.elapsed_seconds, 0);
+        assert!(state.start_time.is_some());
+    }
+
+    #[test]
+    fn test_call_state_tick() {
+        let mut state = CallState::new();
+        state.start();
+        state.tick();
+        assert_eq!(state.elapsed_seconds, 1);
+        state.tick();
+        state.tick();
+        assert_eq!(state.elapsed_seconds, 3);
+    }
+
+    #[test]
+    fn test_call_state_end() {
+        let mut state = CallState::new();
+        state.start();
+        state.tick();
+        state.tick();
+        state.tick();
+        let duration = state.end();
+        assert_eq!(duration, 3);
+        assert!(!state.is_active);
+        assert_eq!(state.elapsed_seconds, 0);
+        assert!(state.start_time.is_none());
+    }
+
+    #[test]
+    fn test_call_state_tick_when_not_active() {
+        let mut state = CallState::new();
+        state.tick();
+        assert_eq!(state.elapsed_seconds, 0); // Should not increment when not active
+    }
+
+    #[test]
+    fn test_format_call_time_zero() {
+        assert_eq!(format_call_time(0), "00:00");
+    }
+
+    #[test]
+    fn test_format_call_time_seconds_only() {
+        assert_eq!(format_call_time(30), "00:30");
+        assert_eq!(format_call_time(59), "00:59");
+    }
+
+    #[test]
+    fn test_format_call_time_minutes() {
+        assert_eq!(format_call_time(60), "01:00");
+        assert_eq!(format_call_time(90), "01:30");
+        assert_eq!(format_call_time(3599), "59:59");
+    }
+
+    #[test]
+    fn test_format_call_time_hours() {
+        assert_eq!(format_call_time(3600), "01:00:00");
+        assert_eq!(format_call_time(3661), "01:01:01");
+        assert_eq!(format_call_time(7325), "02:02:05");
+    }
+
+    #[test]
+    fn test_call_state_format_time() {
+        let mut state = CallState::new();
+        assert_eq!(state.format_time(), "00:00");
+        state.start();
+        state.elapsed_seconds = 90;
+        assert_eq!(state.format_time(), "01:30");
+        state.elapsed_seconds = 3661;
+        assert_eq!(state.format_time(), "01:01:01");
     }
 }

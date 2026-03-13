@@ -1,6 +1,7 @@
 {
   "timer_work": "WORK",
   "timer_break": "BREAK",
+  "timer_call": "CALL",
   "settings_title": "Settings",
   "work_duration": "Work duration:",
   "break_duration": "Break duration:",
@@ -16,6 +17,8 @@
   "start_button": "START",
   "pause_button": "PAUSE",
   "reset_button": "RESET",
+  "start_call_button": "📞 Start Call",
+  "end_call_button": "📞 End Call",
   "survey_complete_title": "Session Complete!",
   "survey_question_focus": "How was your focus this session?",
   "survey_rating_label": "Focus Rating: {}/10",

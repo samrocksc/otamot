@@ -29,6 +29,9 @@ impl T {
     pub fn timer_break(&self) -> String {
         self.get("timer_break")
     }
+    pub fn timer_call(&self) -> String {
+        self.get("timer_call")
+    }
     pub fn settings_title(&self) -> String {
         self.get("settings_title")
     }
@@ -107,6 +110,12 @@ impl T {
     }
     pub fn button_submit(&self) -> String {
         self.get("button_submit")
+    }
+    pub fn start_call_button(&self) -> String {
+        self.get("start_call_button")
+    }
+    pub fn end_call_button(&self) -> String {
+        self.get("end_call_button")
     }
 
     pub fn avg_focus_today(&self, avg: f64) -> String {

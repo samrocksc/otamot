@@ -13,7 +13,7 @@ use otamot::localization::T;
 use otamot::markdown::{format_markdown, insert_date_bullet};
 use otamot::notes;
 use otamot::survey::SurveyData;
-use otamot::timer::TimerMode;
+use otamot::timer::{TimerMode, CallState};
 use otamot::todo::TodoList;
 use otamot::ui_components;
 use otamot::ui::{sidebar::Sidebar, timer::{TimerView, TimerAction}, notes::{NotesEditor, NotesAction}};
@@ -33,6 +33,9 @@ pub struct PomodoroApp {
     last_tick: Option<Instant>,
     session_start: Option<chrono::DateTime<Local>>,
     session_end: Option<chrono::DateTime<Local>>,
+
+    // Call mode state
+    call_state: CallState,
 
     // Configuration
     config: Config,
@@ -119,6 +122,7 @@ impl PomodoroApp {
             last_tick: None,
             session_start: None,
             session_end: None,
+            call_state: CallState::new(),
             config: config.clone(),
             bell,
             show_settings: false,
@@ -226,6 +230,7 @@ impl PomodoroApp {
         button_color: egui::Color32,
         work_color: egui::Color32,
         break_color: egui::Color32,
+        call_color: egui::Color32,
     ) {
         let timer_view = TimerView {
             is_running: self.is_running,
@@ -234,15 +239,19 @@ impl PomodoroApp {
             sessions_completed: self.sessions_completed,
             notes_enabled: self.notes_enabled,
             has_notes_content: !self.notes_content.is_empty(),
+            call_mode_active: self.call_state.is_active,
+            call_time_formatted: Some(self.call_state.format_time()),
             t: &self.t,
         };
 
-        if let Some(action) = timer_view.show(ui, text_color, button_color, work_color, break_color) {
+        if let Some(action) = timer_view.show(ui, text_color, button_color, work_color, break_color, call_color) {
             match action {
                 TimerAction::Toggle => self.toggle_timer(),
                 TimerAction::Reset => self.reset_timer(),
                 TimerAction::Skip => self.skip_to_break(),
                 TimerAction::SaveNotes => self.save_notes(),
+                TimerAction::StartCall => self.start_call(),
+                TimerAction::EndCall => self.end_call(),
             }
         }
     }
@@ -281,6 +290,84 @@ impl PomodoroApp {
         self.remaining_seconds = self.config.break_duration * 60;
         self.is_running = false;
         self.last_tick = None;
+    }
+
+    fn start_call(&mut self) {
+        self.call_state.start();
+    }
+
+    fn end_call(&mut self) {
+        let duration = self.call_state.end();
+        // Save call notes if there's content
+        if self.notes_enabled && !self.notes_content.is_empty() && duration > 0 {
+            self.save_call_notes(duration);
+        }
+    }
+
+    fn save_call_notes(&mut self, duration_seconds: u32) {
+        self.hashtag_library.save();
+
+        let notes_dir = std::path::PathBuf::from(&self.config.notes_directory);
+        if let Err(e) = std::fs::create_dir_all(&notes_dir) {
+            eprintln!("Failed to create notes directory: {}", e);
+            return;
+        }
+
+        let end_time = chrono::Local::now();
+        let start_time = self.call_state.start_time.unwrap_or(end_time);
+
+        let filename = notes::generate_filename(start_time, end_time);
+        let filepath = notes_dir.join(&filename);
+
+        // Generate frontmatter for call notes
+        let hours = duration_seconds / 3600;
+        let minutes = (duration_seconds % 3600) / 60;
+        let secs = duration_seconds % 60;
+        let duration_str = if hours > 0 {
+            format!("{}h {}m", hours, minutes)
+        } else {
+            format!("{}m {}s", minutes, secs)
+        };
+
+        let mut tags = vec!["pomodoro".to_string(), "call".to_string()];
+        for tag in self.extract_hashtags(&self.notes_content) {
+            if !tags.contains(&tag) {
+                tags.push(tag);
+            }
+        }
+        let tags_yaml = tags
+            .iter()
+            .map(|t| format!("  - {}", t))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let frontmatter = format!(
+            "---\ntitle: \"Call Session\"\ndate: {}\nstart_time: {}\nend_time: {}\nduration_seconds: {}\nduration: {}\nmode: call\ntags:\n{}\n---\n\n",
+            end_time.format("%Y-%m-%d %H:%M:%S"),
+            start_time.format("%Y-%m-%d %H:%M:%S"),
+            end_time.format("%Y-%m-%d %H:%M:%S"),
+            duration_seconds,
+            duration_str,
+            tags_yaml
+        );
+
+        // Filter out auto-generated project sections
+        let mut notes_to_save = self.notes_content.clone();
+        if let Some(pos) = notes_to_save.find("# TODO") {
+            notes_to_save.truncate(pos);
+        }
+        if let Some(pos) = notes_to_save.find("# Kanban") {
+            notes_to_save.truncate(pos);
+        }
+        let notes_to_save = notes_to_save.trim().to_string();
+
+        let content = format!("{}{}", frontmatter, notes_to_save);
+        if let Err(e) = std::fs::write(&filepath, &content) {
+            eprintln!("Failed to write call note file: {}", e);
+        } else {
+            self.notes_content.clear();
+            let _ = notes::clear_draft(&self.config.notes_directory);
+        }
     }
 
     fn submit_survey(&mut self) {
@@ -407,6 +494,18 @@ impl PomodoroApp {
     }
 
     fn tick(&mut self) {
+        // Handle call mode ticking
+        if self.call_state.is_active {
+            if let Some(last) = self.last_tick {
+                let elapsed = last.elapsed();
+                if elapsed >= Duration::from_secs(1) {
+                    self.call_state.tick();
+                    self.last_tick = Some(Instant::now());
+                }
+            }
+            return;
+        }
+
         if !self.is_running {
             return;
         }
@@ -926,6 +1025,7 @@ impl eframe::App for PomodoroApp {
         let text_highlight_color = egui::Color32::from_rgb(theme.text_highlight.r, theme.text_highlight.g, theme.text_highlight.b);
         let work_color = egui::Color32::from_rgb(theme.work.r, theme.work.g, theme.work.b);
         let break_color = egui::Color32::from_rgb(theme.b_break.r, theme.b_break.g, theme.b_break.b);
+        let call_color = egui::Color32::from_rgb(0xf5, 0x9e, 0x0b); // Orange/amber for call mode
         let button_color = egui::Color32::from_rgb(theme.button.r, theme.button.g, theme.button.b);
         let bg_color = egui::Color32::from_rgb(theme.bg.r, theme.bg.g, theme.bg.b);
         let tab_active_color = egui::Color32::from_rgb(theme.tab_active.r, theme.tab_active.g, theme.tab_active.b);
@@ -1020,6 +1120,7 @@ impl eframe::App for PomodoroApp {
                                                 button_text_color,
                                                 work_color,
                                                 break_color,
+                                                call_color,
                                                 bg_color,
                                             );
                                         });
@@ -1041,6 +1142,7 @@ impl eframe::App for PomodoroApp {
                                     button_text_color,
                                     work_color,
                                     break_color,
+                                    call_color,
                                     text_dim_color,
                                 );
                             });
@@ -1114,10 +1216,11 @@ impl PomodoroApp {
         button_text_color: egui::Color32,
         work_color: egui::Color32,
         break_color: egui::Color32,
+        call_color: egui::Color32,
         bg_color: egui::Color32,
     ) {
         // Render Timer at the top of the right column
-        self.render_timer(ui, text_color, button_color, work_color, break_color);
+        self.render_timer(ui, text_color, button_color, work_color, break_color, call_color);
 
         // Render notes section if enabled
         if self.notes_enabled {
@@ -1222,48 +1325,87 @@ impl PomodoroApp {
         button_text_color: egui::Color32,
         work_color: egui::Color32,
         break_color: egui::Color32,
+        call_color: egui::Color32,
         _text_dim_color: egui::Color32,
     ) {
         ui.vertical_centered(|ui| {
             ui.add_space(60.0);
+
+            // Show call timer or regular timer
+            let display_time = if self.call_state.is_active {
+                self.call_state.format_time()
+            } else {
+                self.format_time()
+            };
+
             ui.label(
-                egui::RichText::new(self.format_time())
+                egui::RichText::new(display_time)
                     .size(48.0)
                     .color(text_color),
             );
             ui.add_space(10.0);
-            let (label, color) = match self.mode {
-                TimerMode::Work => (self.t.timer_work(), work_color),
-                TimerMode::Break => (self.t.timer_break(), break_color),
+
+            // Show call mode label or regular mode
+            let (label, color) = if self.call_state.is_active {
+                (self.t.timer_call(), call_color)
+            } else {
+                match self.mode {
+                    TimerMode::Work => (self.t.timer_work(), work_color),
+                    TimerMode::Break => (self.t.timer_break(), break_color),
+                }
             };
             ui.label(egui::RichText::new(label).size(20.0).color(color));
             ui.add_space(30.0);
             ui.horizontal(|ui| {
                 ui.add_space(20.0);
-                let btn = if self.is_running {
-                    self.t.pause_button()
-                } else {
-                    self.t.start_button()
-                };
-                if ui_components::rounded_button(ui, &btn, button_text_color, button_color).clicked() {
-                    self.toggle_timer();
-                }
-                ui.add_space(10.0);
-                if ui_components::rounded_button(ui, &self.t.reset_button(), button_text_color, button_color)
+
+                // Timer controls (hidden during call mode)
+                if !self.call_state.is_active {
+                    let btn = if self.is_running {
+                        self.t.pause_button()
+                    } else {
+                        self.t.start_button()
+                    };
+                    if ui_components::rounded_button(ui, &btn, button_text_color, button_color).clicked() {
+                        self.toggle_timer();
+                    }
+                    ui.add_space(10.0);
+                    if ui_components::rounded_button(ui, &self.t.reset_button(), button_text_color, button_color)
+                        .clicked()
+                    {
+                        self.reset_timer();
+                    }
+                    ui.add_space(10.0);
+                    if ui_components::rounded_button(
+                        ui,
+                        &self.t.button_skip_upper(),
+                        button_text_color,
+                        button_color,
+                    )
                     .clicked()
-                {
-                    self.reset_timer();
+                    {
+                        self.skip_to_break();
+                    }
                 }
+
+                // Call Mode Button
                 ui.add_space(10.0);
-                if ui_components::rounded_button(
-                    ui,
-                    &self.t.button_skip_upper(),
-                    button_text_color,
-                    button_color,
-                )
-                .clicked()
-                {
-                    self.skip_to_break();
+                let call_button_color = if self.call_state.is_active {
+                    egui::Color32::from_rgb(0xe7, 0x4c, 0x3c) // Red for end call
+                } else {
+                    egui::Color32::from_rgb(0x27, 0xae, 0x60) // Green for start call
+                };
+                let call_label = if self.call_state.is_active {
+                    self.t.end_call_button()
+                } else {
+                    self.t.start_call_button()
+                };
+                if ui_components::rounded_button(ui, &call_label, button_text_color, call_button_color).clicked() {
+                    if self.call_state.is_active {
+                        self.end_call();
+                    } else {
+                        self.start_call();
+                    }
                 }
             });
             ui.add_space(40.0);

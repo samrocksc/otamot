@@ -20,6 +20,7 @@ pub struct NoteMetadata {
 pub enum NoteMode {
     Work,
     Break,
+    Call,
 }
 
 impl std::fmt::Display for NoteMode {
@@ -27,6 +28,7 @@ impl std::fmt::Display for NoteMode {
         match self {
             NoteMode::Work => write!(f, "work"),
             NoteMode::Break => write!(f, "break"),
+            NoteMode::Call => write!(f, "call"),
         }
     }
 }
@@ -308,13 +310,17 @@ mod tests {
     fn test_note_mode_display() {
         assert_eq!(format!("{}", NoteMode::Work), "work");
         assert_eq!(format!("{}", NoteMode::Break), "break");
+        assert_eq!(format!("{}", NoteMode::Call), "call");
     }
 
     #[test]
     fn test_note_mode_equality() {
         assert_eq!(NoteMode::Work, NoteMode::Work);
         assert_eq!(NoteMode::Break, NoteMode::Break);
+        assert_eq!(NoteMode::Call, NoteMode::Call);
         assert_ne!(NoteMode::Work, NoteMode::Break);
+        assert_ne!(NoteMode::Work, NoteMode::Call);
+        assert_ne!(NoteMode::Break, NoteMode::Call);
     }
 
     #[test]

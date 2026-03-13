@@ -1,6 +1,7 @@
 {
   "timer_work": "ARBEIT",
   "timer_break": "PAUSE",
+  "timer_call": "ANRUF",
   "settings_title": "Einstellungen",
   "work_duration": "Arbeitszeit:",
   "break_duration": "Pausenzeit:",
@@ -16,6 +17,8 @@
   "start_button": "START",
   "pause_button": "PAUSE",
   "reset_button": "RESET",
+  "start_call_button": "📞 Anruf starten",
+  "end_call_button": "📞 Anruf beenden",
   "survey_complete_title": "Sitzung Beendet!",
   "survey_question_focus": "Wie war dein Fokus in dieser Sitzung?",
   "survey_rating_label": "Fokus-Bewertung: {}/10",
