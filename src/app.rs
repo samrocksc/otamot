@@ -49,12 +49,6 @@ pub struct PomodoroApp {
 
     // UI state
     show_settings: bool,
-    temp_work_duration: u32,
-    temp_break_duration: u32,
-    temp_notes_directory: String,
-    temp_todo_file: String,
-    temp_language: Language,
-    temp_theme: Theme,
 
     // Localization helper
     t: T,
@@ -130,12 +124,6 @@ impl PomodoroApp {
             config: config.clone(),
             bell,
             show_settings: false,
-            temp_work_duration: config.work_duration,
-            temp_break_duration: config.break_duration,
-            temp_notes_directory: config.notes_directory.clone(),
-            temp_todo_file: config.todo_file.clone(),
-            temp_language: config.language,
-            temp_theme: config.theme.clone(),
             t: T::new(config.language),
             notes_enabled: config.notes_enabled,
             notes_content: notes::load_draft(&config.notes_directory),
@@ -217,14 +205,6 @@ impl PomodoroApp {
             config: &mut self.config,
         };
         sidebar.show(ui, button_color, button_text_color, text_dim_color);
-
-        // Handle side effects that couldn't be moved easily or need local state
-        if self.show_settings {
-            self.temp_work_duration = self.config.work_duration;
-            self.temp_break_duration = self.config.break_duration;
-            self.temp_notes_directory = self.config.notes_directory.clone();
-            self.temp_theme = self.config.theme.clone();
-        }
     }
 
     fn render_timer(
@@ -669,29 +649,6 @@ impl PomodoroApp {
         };
 
         let _ = std::fs::write(path, content);
-    }
-
-    fn save_settings(&mut self) {
-        self.config.work_duration = self.temp_work_duration;
-        self.config.break_duration = self.temp_break_duration;
-        self.config.notes_directory = self.temp_notes_directory.clone();
-        self.config.language = self.temp_language;
-        self.config.theme = self.temp_theme.clone();
-        self.config.todo_enabled = self.todo_enabled;
-        self.config.todo_file = self.temp_todo_file.clone();
-        self.t = T::new(self.config.language);
-        self.config.slash_commands = self.command_manager.get_commands();
-
-        let _ = self.config.save();
-        self.hashtag_library.save();
-
-        if !self.is_running {
-            self.remaining_seconds = match self.mode {
-                TimerMode::Work => self.config.work_duration * 60,
-                TimerMode::Break => self.config.break_duration * 60,
-            };
-        }
-        self.show_settings = false;
     }
 }
 
@@ -1496,10 +1453,6 @@ impl PomodoroApp {
             )
             .clicked()
             {
-                self.temp_work_duration = self.config.work_duration;
-                self.temp_break_duration = self.config.break_duration;
-                self.temp_notes_directory = self.config.notes_directory.clone();
-                self.temp_theme = self.config.theme.clone();
                 self.show_settings = true;
             }
             if ui_components::rounded_button(
@@ -1657,40 +1610,54 @@ impl PomodoroApp {
                                 .strong(),
                         );
                         ui.add_space(30.0);
+                        // Work duration slider - auto-save
                         ui.horizontal(|ui| {
                             ui.add_space(40.0);
                             ui.label(
                                 egui::RichText::new(format!(
                                     "{} {} min",
                                     self.t.work_duration(),
-                                    self.temp_work_duration
+                                    self.config.work_duration
                                 ))
                                 .size(18.0)
                                 .color(text_dim_color),
                             );
+                            let old_work = self.config.work_duration;
                             ui.add(
-                                egui::Slider::new(&mut self.temp_work_duration, 1..=60)
+                                egui::Slider::new(&mut self.config.work_duration, 1..=60)
                                     .show_value(false),
                             );
+                            if self.config.work_duration != old_work {
+                                let _ = self.config.save();
+                                if !self.is_running {
+                                    self.remaining_seconds = self.config.work_duration * 60;
+                                }
+                            }
                         });
                         ui.add_space(15.0);
+                        // Break duration slider - auto-save
                         ui.horizontal(|ui| {
                             ui.add_space(40.0);
                             ui.label(
                                 egui::RichText::new(format!(
                                     "{} {} min",
                                     self.t.break_duration(),
-                                    self.temp_break_duration
+                                    self.config.break_duration
                                 ))
                                 .size(18.0)
                                 .color(text_dim_color),
                             );
+                            let old_break = self.config.break_duration;
                             ui.add(
-                                egui::Slider::new(&mut self.temp_break_duration, 1..=30)
+                                egui::Slider::new(&mut self.config.break_duration, 1..=30)
                                     .show_value(false),
                             );
+                            if self.config.break_duration != old_break {
+                                let _ = self.config.save();
+                            }
                         });
                         ui.add_space(20.0);
+                        // Notes directory - auto-save on change
                         ui.horizontal(|ui| {
                             ui.add_space(40.0);
                             ui.label(
@@ -1701,12 +1668,17 @@ impl PomodoroApp {
                         });
                         ui.horizontal(|ui| {
                             ui.add_space(40.0);
+                            let old_dir = self.config.notes_directory.clone();
                             ui.add(
-                                egui::TextEdit::singleline(&mut self.temp_notes_directory)
+                                egui::TextEdit::singleline(&mut self.config.notes_directory)
                                     .desired_width(350.0),
                             );
+                            if self.config.notes_directory != old_dir {
+                                let _ = self.config.save();
+                            }
                         });
                         ui.add_space(20.0);
+                        // TODO file - auto-save on change
                         ui.horizontal(|ui| {
                             ui.add_space(40.0);
                             ui.label(
@@ -1717,12 +1689,17 @@ impl PomodoroApp {
                         });
                         ui.horizontal(|ui| {
                             ui.add_space(40.0);
+                            let old_todo = self.config.todo_file.clone();
                             ui.add(
-                                egui::TextEdit::singleline(&mut self.temp_todo_file)
+                                egui::TextEdit::singleline(&mut self.config.todo_file)
                                     .desired_width(350.0),
                             );
+                            if self.config.todo_file != old_todo {
+                                let _ = self.config.save();
+                            }
                         });
                         ui.add_space(20.0);
+                        // Survey toggle - already auto-saves
                         ui.horizontal(|ui| {
                             ui.add_space(40.0);
                             let survey_label = if self.config.survey_enabled {
@@ -1758,6 +1735,7 @@ impl PomodoroApp {
                         });
                         ui.add_space(20.0);
 
+                        // Bell tune radio - already auto-saves
                         ui.horizontal(|ui| {
                             ui.add_space(40.0);
                             ui.label(
@@ -1766,6 +1744,7 @@ impl PomodoroApp {
                                     .color(text_dim_color),
                             );
                         });
+                        let old_bell = self.config.bell_tune;
                         ui.horizontal(|ui| {
                             ui.add_space(60.0);
                             ui.radio_value(
@@ -1790,17 +1769,19 @@ impl PomodoroApp {
                                 self.t.tune_icecream(),
                             );
                         });
-
-                        // Update bell config immediately when changed in settings
-                        self.bell.set_config(otamot::bell::BellConfig {
-                            enabled: self.bell.config().enabled,
-                            volume: self.bell.config().volume,
-                            duration_ms: self.bell.config().duration_ms,
-                            frequency: self.bell.config().frequency,
-                            tune: self.config.bell_tune,
-                        });
+                        if self.config.bell_tune != old_bell {
+                            let _ = self.config.save();
+                            self.bell.set_config(otamot::bell::BellConfig {
+                                enabled: self.bell.config().enabled,
+                                volume: self.bell.config().volume,
+                                duration_ms: self.bell.config().duration_ms,
+                                frequency: self.bell.config().frequency,
+                                tune: self.config.bell_tune,
+                            });
+                        }
 
                         ui.add_space(20.0);
+                        // Theme selector - auto-save
                         ui.set_max_width(500.0);
                         ui.horizontal(|ui| {
                             ui.add_space(40.0);
@@ -1809,9 +1790,9 @@ impl PomodoroApp {
                                     .size(18.0)
                                     .color(text_dim_color),
                             );
-                            let current_theme = self.temp_theme.clone();
+                            let current_theme = self.config.theme.clone();
                             egui::ComboBox::from_id_salt("theme_selector")
-                                .selected_text(&self.temp_theme.name)
+                                .selected_text(&self.config.theme.name)
                                 .show_ui(ui, |ui| {
                                     let themes: [Theme; 5] = [
                                         Theme::light(),
@@ -1822,20 +1803,19 @@ impl PomodoroApp {
                                     ];
                                     for theme in themes {
                                         ui.selectable_value(
-                                            &mut self.temp_theme,
+                                            &mut self.config.theme,
                                             theme.clone(),
                                             &theme.name,
                                         );
                                     }
                                 });
-                            // Auto-apply and save theme change immediately
-                            if self.temp_theme != current_theme {
-                                self.config.theme = self.temp_theme.clone();
+                            if self.config.theme != current_theme {
                                 let _ = self.config.save();
                                 ctx.request_repaint();
                             }
                         });
                         ui.add_space(20.0);
+                        // Language selector - auto-save
                         ui.horizontal(|ui| {
                             ui.add_space(40.0);
                             ui.label(
@@ -1843,53 +1823,42 @@ impl PomodoroApp {
                                     .size(18.0)
                                     .color(text_dim_color),
                             );
+                            let current_lang = self.config.language;
                             egui::ComboBox::from_id_salt("language_selector")
-                                .selected_text(match self.temp_language {
+                                .selected_text(match self.config.language {
                                     Language::English => self.t.lang_en(),
                                     Language::German => self.t.lang_de(),
                                 })
                                 .show_ui(ui, |ui| {
                                     ui.selectable_value(
-                                        &mut self.temp_language,
+                                        &mut self.config.language,
                                         Language::English,
                                         self.t.lang_en(),
                                     );
                                     ui.selectable_value(
-                                        &mut self.temp_language,
+                                        &mut self.config.language,
                                         Language::German,
                                         self.t.lang_de(),
                                     );
                                 });
+                            if self.config.language != current_lang {
+                                self.t = T::new(self.config.language);
+                                let _ = self.config.save();
+                            }
                         });
                         ui.add_space(40.0);
+                        // Close button
                         ui.horizontal(|ui| {
                             ui.add_space(40.0);
                             if ui_components::rounded_button(
                                 ui,
-                                &self.t.button_cancel(),
+                                "Close",
                                 button_text_color,
                                 button_color,
                             )
                             .clicked()
                             {
                                 self.show_settings = false;
-                                self.temp_work_duration = self.config.work_duration;
-                                self.temp_break_duration = self.config.break_duration;
-                                self.temp_notes_directory = self.config.notes_directory.clone();
-                                self.temp_language = self.config.language;
-                            }
-                            ui.add_space(15.0);
-                            if ui_components::rounded_button(
-                                ui,
-                                &self.t.button_save(),
-                                button_text_color,
-                                tab_active_color,
-                            )
-                            .clicked()
-                            {
-                                self.save_settings();
-                                self.show_settings = false;
-                                ctx.request_repaint(); // Force immediate repaint for theme changes
                             }
                         });
                         ui.add_space(20.0);
