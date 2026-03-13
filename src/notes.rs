@@ -138,7 +138,6 @@ pub fn clear_draft(directory: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

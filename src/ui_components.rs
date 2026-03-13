@@ -35,7 +35,12 @@ fn wrap_text(text: &str, max_chars: usize) -> String {
 }
 
 /// Renders a markdown preview within an egui::Frame.
-pub fn render_markdown_preview(ui: &mut egui::Ui, content: &str, text_color: Color32, bg_color: Color32) {
+pub fn render_markdown_preview(
+    ui: &mut egui::Ui,
+    content: &str,
+    text_color: Color32,
+    bg_color: Color32,
+) {
     egui::Frame::group(ui.style())
         .fill(bg_color)
         .rounding(egui::Rounding::same(8.0))
@@ -102,10 +107,7 @@ pub fn render_markdown_preview(ui: &mut egui::Ui, content: &str, text_color: Col
                             .or_else(|| trimmed.strip_prefix("* "))
                             .unwrap_or(trimmed)
                     );
-                    ui.label(
-                        egui::RichText::new(bullet_text)
-                            .color(text_color),
-                    );
+                    ui.label(egui::RichText::new(bullet_text).color(text_color));
                 } else if trimmed.starts_with("  - ") || trimmed.starts_with("  * ") {
                     // Indented list items
                     let bullet_text = format!(
@@ -116,27 +118,18 @@ pub fn render_markdown_preview(ui: &mut egui::Ui, content: &str, text_color: Col
                             .or_else(|| trimmed[2..].trim().strip_prefix("* "))
                             .unwrap_or(trimmed)
                     );
-                    ui.label(
-                        egui::RichText::new(bullet_text)
-                            .color(text_color),
-                    );
+                    ui.label(egui::RichText::new(bullet_text).color(text_color));
                 } else if trimmed.starts_with("**") && trimmed.ends_with("**") && trimmed.len() > 4
                 {
                     let bold_text = trimmed[2..trimmed.len() - 2].to_string();
-                    ui.label(
-                        egui::RichText::new(bold_text)
-                            .strong()
-                            .color(text_color),
-                    );
+                    ui.label(egui::RichText::new(bold_text).strong().color(text_color));
                 } else if trimmed.is_empty() {
                     // Preserve empty lines as spacing
                     ui.add_space(6.0);
                 } else {
                     // Regular paragraph text - handle inline bold via our markdown helper
                     let text = format_inline_markdown(trimmed);
-                    ui.label(
-                        egui::RichText::new(text).color(text_color),
-                    );
+                    ui.label(egui::RichText::new(text).color(text_color));
                 }
             }
             ui.add_space(20.0);
@@ -184,19 +177,19 @@ pub fn render_todo_panel(
                     .hint_text(t.todo_hint())
                     .desired_width(ui.available_width() - 20.0),
             );
-                if (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
-                    && !todo_input.trim().is_empty()
-                {
-                    let text = todo_input.trim().to_string();
-                    todo_list.add(text.clone());
-                    // Link: Add to Kanban board as well
-                    kanban_board.add_item(text);
-                    
-                    todo_input.clear();
-                    changed = true;
-                    let _ = todo_list.save();
-                    let _ = kanban_board.save();
-                }
+            if (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+                && !todo_input.trim().is_empty()
+            {
+                let text = todo_input.trim().to_string();
+                todo_list.add(text.clone());
+                // Link: Add to Kanban board as well
+                kanban_board.add_item(text);
+
+                todo_input.clear();
+                changed = true;
+                let _ = todo_list.save();
+                let _ = kanban_board.save();
+            }
         });
     });
 
@@ -218,15 +211,16 @@ pub fn render_todo_panel(
                 ui.label(egui::RichText::new(&item.text).color(text_color));
 
                 // Add status indicator emoji for Kanban interplay
-                let status_emoji = if let Some(k_item) = kanban_board.items.iter().find(|k| k.text == item.text) {
-                    match k_item.status {
-                        KanbanStatus::Todo => "🔵",
-                        KanbanStatus::InProgress => "🟡",
-                        KanbanStatus::Done => "🟢",
-                    }
-                } else {
-                    "⚪"
-                };
+                let status_emoji =
+                    if let Some(k_item) = kanban_board.items.iter().find(|k| k.text == item.text) {
+                        match k_item.status {
+                            KanbanStatus::Todo => "🔵",
+                            KanbanStatus::InProgress => "🟡",
+                            KanbanStatus::Done => "🟢",
+                        }
+                    } else {
+                        "⚪"
+                    };
                 ui.label(status_emoji);
 
                 if icon_button(ui, "❌", button_text_color, button_color).clicked() {
@@ -268,7 +262,9 @@ pub fn render_todo_panel(
             todo_list.remove(id);
             // Also remove from Kanban board
             if let Some(text) = to_remove_text {
-                let kanban_ids: Vec<usize> = kanban_board.items.iter()
+                let kanban_ids: Vec<usize> = kanban_board
+                    .items
+                    .iter()
                     .filter(|k| k.text == text)
                     .map(|k| k.id)
                     .collect();
@@ -286,7 +282,14 @@ pub fn render_todo_panel(
     let completed = todo_list.completed_count();
     if completed > 0 {
         ui.add_space(10.0);
-        if rounded_button(ui, t.todo_clear_completed_btn().as_str(), button_text_color, button_color).clicked() {
+        if rounded_button(
+            ui,
+            t.todo_clear_completed_btn().as_str(),
+            button_text_color,
+            button_color,
+        )
+        .clicked()
+        {
             todo_list.clear_completed();
             changed = true;
             let _ = todo_list.save();
@@ -344,11 +347,8 @@ pub fn sidebar_button(
     };
 
     // Draw the button background
-    ui.painter().rect_filled(
-        rect,
-        egui::Rounding::same(ROUNDING),
-        fill_color,
-    );
+    ui.painter()
+        .rect_filled(rect, egui::Rounding::same(ROUNDING), fill_color);
 
     // Draw the button text centered
     let text_pos = rect.center();
@@ -382,10 +382,8 @@ pub fn sidebar_icon_button(
     );
 
     // Allocate exact size
-    let (rect, response) = ui.allocate_exact_size(
-        egui::vec2(BUTTON_SIZE, BUTTON_SIZE),
-        egui::Sense::click(),
-    );
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(BUTTON_SIZE, BUTTON_SIZE), egui::Sense::click());
 
     // Handle hover styling
     let fill_color = if response.hovered() {
@@ -395,11 +393,8 @@ pub fn sidebar_icon_button(
     };
 
     // Draw the button background
-    ui.painter().rect_filled(
-        rect,
-        egui::Rounding::same(ROUNDING),
-        fill_color,
-    );
+    ui.painter()
+        .rect_filled(rect, egui::Rounding::same(ROUNDING), fill_color);
 
     // Draw the icon centered
     let text_pos = rect.center();
@@ -458,7 +453,7 @@ pub fn render_kanban_board(
 ) -> bool {
     let mut changed = false;
     ui.add_space(10.0);
-    
+
     ui.label(
         egui::RichText::new("Kanban Board")
             .size(24.0)
@@ -485,7 +480,15 @@ pub fn render_kanban_board(
             let _ = board.save();
             let _ = todo_list.save();
         }
-        if small_rounded_button(ui, &t.button_add(), button_text_color, Color32::from_rgb(0x27, 0xae, 0x60)).clicked() && !kanban_input.trim().is_empty() {
+        if small_rounded_button(
+            ui,
+            &t.button_add(),
+            button_text_color,
+            Color32::from_rgb(0x27, 0xae, 0x60),
+        )
+        .clicked()
+            && !kanban_input.trim().is_empty()
+        {
             let text = kanban_input.trim().to_string();
             board.add_item(text.clone());
             todo_list.add(text);
@@ -496,12 +499,26 @@ pub fn render_kanban_board(
         }
 
         ui.add_space(5.0);
-        if small_rounded_button(ui, "Clear", button_text_color, Color32::from_rgb(0x0f, 0x34, 0x60)).clicked() {
+        if small_rounded_button(
+            ui,
+            "Clear",
+            button_text_color,
+            Color32::from_rgb(0x0f, 0x34, 0x60),
+        )
+        .clicked()
+        {
             kanban_input.clear();
         }
 
         ui.add_space(5.0);
-        if small_rounded_button(ui, "Clear Done", button_text_color, Color32::from_rgb(0xe7, 0x4c, 0x3c)).clicked() {
+        if small_rounded_button(
+            ui,
+            "Clear Done",
+            button_text_color,
+            Color32::from_rgb(0xe7, 0x4c, 0x3c),
+        )
+        .clicked()
+        {
             board.clear_done();
             changed = true;
             let _ = board.save();
@@ -526,11 +543,7 @@ pub fn render_kanban_board(
             ui.vertical(|ui| {
                 ui.set_width(column_width);
                 ui.vertical_centered(|ui| {
-                    ui.label(
-                        egui::RichText::new(*label)
-                            .strong()
-                            .color(text_color),
-                    );
+                    ui.label(egui::RichText::new(*label).strong().color(text_color));
                 });
                 ui.add_space(5.0);
 
@@ -539,9 +552,7 @@ pub fn render_kanban_board(
                     bg_color.g().saturating_add(8),
                     bg_color.b().saturating_add(8),
                 );
-                let frame = Frame::group(ui.style())
-                    .fill(col_bg)
-                    .inner_margin(4.0);
+                let frame = Frame::group(ui.style()).fill(col_bg).inner_margin(4.0);
 
                 let (_, dropped_payload) = ui.dnd_drop_zone::<usize, ()>(frame, |ui| {
                     ui.set_min_height(250.0);
@@ -567,24 +578,34 @@ pub fn render_kanban_board(
                                         ui.horizontal(|ui| {
                                             let wrapped = wrap_text(&item.text, 45);
                                             ui.label(
-                                                egui::RichText::new(wrapped)
-                                                    .color(text_color),
+                                                egui::RichText::new(wrapped).color(text_color),
                                             );
                                             ui.with_layout(
-                                                egui::Layout::right_to_left(
-                                                    egui::Align::Center,
-                                                ),
+                                                egui::Layout::right_to_left(egui::Align::Center),
                                                 |ui| {
-                                                    if icon_button(ui, "❌", button_text_color, item_bg_color.linear_multiply(1.5)).clicked() {
+                                                    if icon_button(
+                                                        ui,
+                                                        "❌",
+                                                        button_text_color,
+                                                        item_bg_color.linear_multiply(1.5),
+                                                    )
+                                                    .clicked()
+                                                    {
                                                         let text = item.text.clone();
                                                         board.delete_item(item.id);
                                                         // Link: find and remove from TODO
-                                                        let todo_ids: Vec<usize> = todo_list.active.iter()
+                                                        let todo_ids: Vec<usize> = todo_list
+                                                            .active
+                                                            .iter()
                                                             .filter(|t| t.text == text)
                                                             .map(|t| t.id)
-                                                            .chain(todo_list.completed.iter()
-                                                                .filter(|t| t.text == text)
-                                                                .map(|t| t.id))
+                                                            .chain(
+                                                                todo_list
+                                                                    .completed
+                                                                    .iter()
+                                                                    .filter(|t| t.text == text)
+                                                                    .map(|t| t.id),
+                                                            )
                                                             .collect();
                                                         for tid in todo_ids {
                                                             todo_list.remove(tid);

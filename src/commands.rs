@@ -83,7 +83,10 @@ impl CommandManager {
     /// Returns (command_start_byte_index, command_text) if a command is being typed
     pub fn find_command_at_cursor(text: &str, byte_cursor_pos: usize) -> Option<(usize, String)> {
         // Find the start of the current line
-        let line_start = text[..byte_cursor_pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
+        let line_start = text[..byte_cursor_pos]
+            .rfind('\n')
+            .map(|i| i + 1)
+            .unwrap_or(0);
         let line_text = &text[line_start..byte_cursor_pos];
 
         // Find the last '/' in the line before cursor

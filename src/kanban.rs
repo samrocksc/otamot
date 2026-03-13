@@ -55,9 +55,9 @@ impl KanbanBoard {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        
+
         let kanban_md = self.to_markdown();
-        
+
         // If the file is the global TODO.md, we need to preserve the # TODO section if it exists
         // actually let's just make save_to_path much simpler and have it just write the md
         // and we will handle the merging and syncing in a dedicated "ProjectManager" or similar.
@@ -67,13 +67,12 @@ impl KanbanBoard {
 
     pub fn save(&self) -> std::io::Result<()> {
         if self.kanban_file.is_empty() {
-             let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-             let path = format!("{}/.config/otamot/TODO.md", home);
-             return self.save_to_path(&path);
+            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+            let path = format!("{}/.config/otamot/TODO.md", home);
+            return self.save_to_path(&path);
         }
         self.save_to_path(&self.kanban_file)
     }
-
 
     pub fn add_item(&mut self, text: String) {
         let item = KanbanItem {
@@ -103,11 +102,13 @@ impl KanbanBoard {
     }
 
     pub fn clear_done(&mut self) {
-        let done_items: Vec<_> = self.items.iter()
+        let done_items: Vec<_> = self
+            .items
+            .iter()
             .filter(|i| i.status == KanbanStatus::Done)
             .map(|i| i.id)
             .collect();
-        
+
         for id in done_items {
             self.delete_item(id);
         }
@@ -116,7 +117,7 @@ impl KanbanBoard {
     pub fn to_markdown(&self) -> String {
         let mut output = String::new();
         output.push_str("# Kanban\n\n");
-        
+
         let statuses = [
             (KanbanStatus::Todo, "TODO"),
             (KanbanStatus::InProgress, "IN PROGRESS"),
@@ -130,7 +131,11 @@ impl KanbanBoard {
                 output.push_str("(No items)\n");
             } else {
                 for item in items {
-                    let checkbox = if status == KanbanStatus::Done { "[x]" } else { "[ ]" };
+                    let checkbox = if status == KanbanStatus::Done {
+                        "[x]"
+                    } else {
+                        "[ ]"
+                    };
                     output.push_str(&format!("- {} {}\n", checkbox, item.text));
                 }
             }
@@ -148,16 +153,16 @@ impl KanbanBoard {
 
         for line in content.lines() {
             let trimmed = line.trim();
-            
+
             if trimmed == "# Kanban" {
                 in_kanban_section = true;
                 continue;
             }
-            
+
             if in_kanban_section && trimmed.starts_with("# ") && trimmed != "# Kanban" {
                 break;
             }
-            
+
             if in_kanban_section {
                 if trimmed == "## TODO" {
                     current_status = Some(KanbanStatus::Todo);
@@ -165,9 +170,11 @@ impl KanbanBoard {
                     current_status = Some(KanbanStatus::InProgress);
                 } else if trimmed == "## DONE" {
                     current_status = Some(KanbanStatus::Done);
-                } else if (trimmed.starts_with("- [ ] ") || trimmed.starts_with("- [x] ")) && current_status.is_some() {
+                } else if (trimmed.starts_with("- [ ] ") || trimmed.starts_with("- [x] "))
+                    && current_status.is_some()
+                {
                     let text = &trimmed[6..];
-                    
+
                     if text != "(No items)" && !text.is_empty() {
                         board.items.push(KanbanItem {
                             id: next_id,
@@ -218,14 +225,22 @@ impl KanbanBoard {
             match kanban_item.status {
                 KanbanStatus::Done => {
                     // If Done in Kanban, it MUST be completed in Todo
-                    if let Some(todo_pos) = todo_list.active.iter().position(|t| t.text == kanban_item.text) {
+                    if let Some(todo_pos) = todo_list
+                        .active
+                        .iter()
+                        .position(|t| t.text == kanban_item.text)
+                    {
                         todo_list.toggle(todo_list.active[todo_pos].id);
                         changed_todo = true;
                     }
                 }
                 KanbanStatus::Todo | KanbanStatus::InProgress => {
                     // If NOT Done in Kanban, it MUST be active in Todo (if it exists)
-                    if let Some(todo_pos) = todo_list.completed.iter().position(|t| t.text == kanban_item.text) {
+                    if let Some(todo_pos) = todo_list
+                        .completed
+                        .iter()
+                        .position(|t| t.text == kanban_item.text)
+                    {
                         todo_list.toggle(todo_list.completed[todo_pos].id);
                         changed_todo = true;
                     }

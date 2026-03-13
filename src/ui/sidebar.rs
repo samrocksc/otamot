@@ -70,11 +70,12 @@ impl<'a> Sidebar<'a> {
                     *self.show_survey_summary = true;
                 }
 
-                // Divider - constrained width to match buttons
+                // Divider - horizontal line matching button width
                 ui.add_space(12.0);
                 ui.horizontal(|ui| {
+                    ui.set_min_width(100.0);
                     ui.set_max_width(140.0);
-                    ui.add(egui::Separator::default().spacing(4.0));
+                    ui.add(egui::Separator::default().horizontal().spacing(4.0));
                 });
                 ui.add_space(12.0);
 
@@ -123,11 +124,12 @@ impl<'a> Sidebar<'a> {
                     let _ = self.config.save();
                 }
 
-                // Divider - constrained width to match buttons
+                // Divider - horizontal line matching button width
                 ui.add_space(12.0);
                 ui.horizontal(|ui| {
+                    ui.set_min_width(100.0);
                     ui.set_max_width(140.0);
-                    ui.add(egui::Separator::default().spacing(4.0));
+                    ui.add(egui::Separator::default().horizontal().spacing(4.0));
                 });
                 ui.add_space(12.0);
 

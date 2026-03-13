@@ -13,10 +13,14 @@ use otamot::localization::T;
 use otamot::markdown::{format_markdown, insert_date_bullet};
 use otamot::notes;
 use otamot::survey::SurveyData;
-use otamot::timer::{TimerMode, CallState};
+use otamot::timer::{CallState, TimerMode};
 use otamot::todo::TodoList;
+use otamot::ui::{
+    notes::{NotesAction, NotesEditor},
+    sidebar::Sidebar,
+    timer::{TimerAction, TimerView},
+};
 use otamot::ui_components;
-use otamot::ui::{sidebar::Sidebar, timer::{TimerView, TimerAction}, notes::{NotesEditor, NotesAction}};
 
 /// Dropdown state for autocomplete
 #[derive(Debug, Clone, PartialEq)]
@@ -213,7 +217,7 @@ impl PomodoroApp {
             config: &mut self.config,
         };
         sidebar.show(ui, button_color, button_text_color, text_dim_color);
-        
+
         // Handle side effects that couldn't be moved easily or need local state
         if self.show_settings {
             self.temp_work_duration = self.config.work_duration;
@@ -244,7 +248,14 @@ impl PomodoroApp {
             t: &self.t,
         };
 
-        if let Some(action) = timer_view.show(ui, text_color, button_color, work_color, break_color, call_color) {
+        if let Some(action) = timer_view.show(
+            ui,
+            text_color,
+            button_color,
+            work_color,
+            break_color,
+            call_color,
+        ) {
             match action {
                 TimerAction::Toggle => self.toggle_timer(),
                 TimerAction::Reset => self.reset_timer(),
@@ -294,6 +305,7 @@ impl PomodoroApp {
 
     fn start_call(&mut self) {
         self.call_state.start();
+        self.last_tick = Some(Instant::now());
     }
 
     fn end_call(&mut self) {
@@ -452,15 +464,15 @@ impl PomodoroApp {
                     let idx = ((y * size + x) * 4) as usize;
                     if dist <= radius {
                         // Crimson red tomato color
-                        pixels[idx] = 220;     // R
-                        pixels[idx + 1] = 20;  // G
-                        pixels[idx + 2] = 60;  // B
+                        pixels[idx] = 220; // R
+                        pixels[idx + 1] = 20; // G
+                        pixels[idx + 2] = 60; // B
                         pixels[idx + 3] = 255; // A
                     } else if dist <= radius + 1.5 {
                         // Dark red outline for visibility
-                        pixels[idx] = 139;     // R
-                        pixels[idx + 1] = 0;  // G
-                        pixels[idx + 2] = 0;  // B
+                        pixels[idx] = 139; // R
+                        pixels[idx + 1] = 0; // G
+                        pixels[idx + 2] = 0; // B
                         pixels[idx + 3] = 255; // A
                     }
                 }
@@ -564,9 +576,12 @@ impl PomodoroApp {
                     .trim_start_matches('#')
                     .trim_end_matches(|c: char| !c.is_alphanumeric() && c != '_')
                     .to_lowercase();
-                    if !tag.is_empty() && tag.chars().all(|c| c.is_alphanumeric() || c == '_') && !tags.contains(&tag) {
-                        tags.push(tag);
-                    }
+                if !tag.is_empty()
+                    && tag.chars().all(|c| c.is_alphanumeric() || c == '_')
+                    && !tags.contains(&tag)
+                {
+                    tags.push(tag);
+                }
             }
         }
         tags
@@ -612,7 +627,7 @@ impl PomodoroApp {
         if let Some(pos) = notes_to_save.find("# Kanban") {
             notes_to_save.truncate(pos);
         }
-        
+
         let notes_to_save = notes_to_save.trim().to_string();
 
         let frontmatter = format!(
@@ -642,7 +657,7 @@ impl PomodoroApp {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        
+
         let content = if self.notes_view == NotesView::Project {
             self.project_content.clone()
         } else {
@@ -652,7 +667,7 @@ impl PomodoroApp {
             c.push_str(&self.kanban_board.to_markdown());
             c
         };
-        
+
         let _ = std::fs::write(path, content);
     }
 
@@ -704,10 +719,10 @@ impl eframe::App for PomodoroApp {
 
         // Essential state updates
         self.tick();
-        
+
         // Auto-save notes draft if they've changed
         if self.notes_enabled && !self.notes_content.is_empty() {
-             let _ = notes::save_draft(&self.config.notes_directory, &self.notes_content);
+            let _ = notes::save_draft(&self.config.notes_directory, &self.notes_content);
         }
 
         if self.is_running {
@@ -724,7 +739,9 @@ impl eframe::App for PomodoroApp {
                     if ctx.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
                         self.dropdown_selected =
                             (self.dropdown_selected + 1) % self.dropdown_items.len();
-                        ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown));
+                        ctx.input_mut(|i| {
+                            i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)
+                        });
                     }
                     if ctx.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
                         self.dropdown_selected = if self.dropdown_selected == 0 {
@@ -748,7 +765,9 @@ impl eframe::App for PomodoroApp {
                         {
                             if !tag.is_empty() {
                                 self.apply_dropdown_selection(tag);
-                                ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+                                ctx.input_mut(|i| {
+                                    i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+                                });
                             }
                         }
                     }
@@ -842,12 +861,16 @@ impl eframe::App for PomodoroApp {
         }
 
         // Check for early keyboard input for Enter in dropdown
-        if self.notes_enabled && self.notes_view == NotesView::Edit && self.dropdown_visible && !self.dropdown_items.is_empty() {
-             if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
-                 let item = self.dropdown_items[self.dropdown_selected].clone();
-                 self.apply_dropdown_selection(item);
-                 ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
-             }
+        if self.notes_enabled
+            && self.notes_view == NotesView::Edit
+            && self.dropdown_visible
+            && !self.dropdown_items.is_empty()
+        {
+            if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+                let item = self.dropdown_items[self.dropdown_selected].clone();
+                self.apply_dropdown_selection(item);
+                ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+            }
         }
         if ctx.input(|i| i.key_pressed(egui::Key::Comma) && i.modifiers.command) {
             self.show_settings = true;
@@ -898,7 +921,11 @@ impl eframe::App for PomodoroApp {
             }
         }
 
-        if ctx.input(|i| i.key_pressed(egui::Key::Slash) && i.modifiers.ctrl && i.modifiers.shift) {
+        // CMD/CTRL+SHIFT+/ (or CMD/CTRL+?) to toggle help
+        let help_shortcut = ctx.input(|i| {
+            i.key_pressed(egui::Key::Slash) && i.modifiers.shift && i.modifiers.command
+        });
+        if help_shortcut {
             self.show_help = !self.show_help;
         }
 
@@ -1021,15 +1048,26 @@ impl eframe::App for PomodoroApp {
         // Theme Definitions
         let theme = &self.config.theme;
         let text_color = egui::Color32::from_rgb(theme.text.r, theme.text.g, theme.text.b);
-        let text_dim_color = egui::Color32::from_rgb(theme.text_dim.r, theme.text_dim.g, theme.text_dim.b);
-        let text_highlight_color = egui::Color32::from_rgb(theme.text_highlight.r, theme.text_highlight.g, theme.text_highlight.b);
+        let text_dim_color =
+            egui::Color32::from_rgb(theme.text_dim.r, theme.text_dim.g, theme.text_dim.b);
+        let text_highlight_color = egui::Color32::from_rgb(
+            theme.text_highlight.r,
+            theme.text_highlight.g,
+            theme.text_highlight.b,
+        );
         let work_color = egui::Color32::from_rgb(theme.work.r, theme.work.g, theme.work.b);
-        let break_color = egui::Color32::from_rgb(theme.b_break.r, theme.b_break.g, theme.b_break.b);
+        let break_color =
+            egui::Color32::from_rgb(theme.b_break.r, theme.b_break.g, theme.b_break.b);
         let call_color = egui::Color32::from_rgb(0xf5, 0x9e, 0x0b); // Orange/amber for call mode
         let button_color = egui::Color32::from_rgb(theme.button.r, theme.button.g, theme.button.b);
         let bg_color = egui::Color32::from_rgb(theme.bg.r, theme.bg.g, theme.bg.b);
-        let tab_active_color = egui::Color32::from_rgb(theme.tab_active.r, theme.tab_active.g, theme.tab_active.b);
-        let tab_inactive_color = egui::Color32::from_rgb(theme.tab_inactive.r, theme.tab_inactive.g, theme.tab_inactive.b);
+        let tab_active_color =
+            egui::Color32::from_rgb(theme.tab_active.r, theme.tab_active.g, theme.tab_active.b);
+        let tab_inactive_color = egui::Color32::from_rgb(
+            theme.tab_inactive.r,
+            theme.tab_inactive.g,
+            theme.tab_inactive.b,
+        );
 
         let theme_visuals = if theme.dark_mode {
             egui::Visuals::dark()
@@ -1039,7 +1077,8 @@ impl eframe::App for PomodoroApp {
             light.widgets.hovered.bg_fill = egui::Color32::from_gray(240);
             light.widgets.active.bg_fill = egui::Color32::from_gray(230);
             // Light grey border for text boxes in Monokai light
-            light.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_gray(200));
+            light.widgets.noninteractive.bg_stroke =
+                egui::Stroke::new(1.0, egui::Color32::from_gray(200));
             light
         };
 
@@ -1051,111 +1090,129 @@ impl eframe::App for PomodoroApp {
             ..theme_visuals
         });
 
-        let button_text_color = egui::Color32::from_rgb(theme.button_text.r, theme.button_text.g, theme.button_text.b);
+        let button_text_color = egui::Color32::from_rgb(
+            theme.button_text.r,
+            theme.button_text.g,
+            theme.button_text.b,
+        );
 
         // Main UI Layout
         egui::CentralPanel::default()
             .frame(egui::Frame::none().inner_margin(egui::Margin::same(15.0)))
             .show(ctx, |ui| {
-            if self.notes_enabled || self.todo_enabled {
-                // Get the full available height before entering horizontal layout
-                let full_height = ui.available_height();
-                let total_width = ui.available_width();
-                let sidebar_width = if self.sidebar_collapsed { 50.0 } else { 200.0 };
-                let right_width = total_width - sidebar_width - 20.0;
-                ui.horizontal_top(|ui| {
-                    // Side Pillar 1: Settings and toggles (Sidebar)
-                    ui.allocate_ui(egui::vec2(sidebar_width, full_height), |ui| {
-                        ui.vertical(|ui| {
-                            // Sync Kanban with TODO if enabled
-                            if self.kanban_enabled {
-                                self.kanban_board.sync_with_todo(&mut self.todo_list);
-                            }
+                if self.notes_enabled || self.todo_enabled {
+                    // Get the full available height before entering horizontal layout
+                    let full_height = ui.available_height();
+                    let total_width = ui.available_width();
+                    let sidebar_width = if self.sidebar_collapsed { 50.0 } else { 200.0 };
+                    let right_width = total_width - sidebar_width - 20.0;
+                    ui.horizontal_top(|ui| {
+                        // Side Pillar 1: Settings and toggles (Sidebar)
+                        ui.allocate_ui(egui::vec2(sidebar_width, full_height), |ui| {
+                            ui.vertical(|ui| {
+                                // Sync Kanban with TODO if enabled
+                                if self.kanban_enabled {
+                                    self.kanban_board.sync_with_todo(&mut self.todo_list);
+                                }
 
-                            egui::ScrollArea::vertical()
-                                .id_salt("sidebar_scroll")
-                                .auto_shrink([false, false])
-                                .show(ui, |ui| {
-                                    self.render_sidebar(
+                                egui::ScrollArea::vertical()
+                                    .id_salt("sidebar_scroll")
+                                    .auto_shrink([false, false])
+                                    .show(ui, |ui| {
+                                        self.render_sidebar(
+                                            ui,
+                                            text_color,
+                                            button_color,
+                                            button_text_color,
+                                            text_dim_color,
+                                        );
+                                    });
+                            });
+                        });
+
+                        ui.separator();
+
+                        // Side Pillar 2: Timer + Notes area and/or TODOs
+                        ui.allocate_ui(egui::vec2(right_width, full_height), |ui| {
+                            ui.style_mut().spacing.item_spacing.x = 10.0; // Internal spacing
+
+                            ui.vertical(|ui| {
+                                egui::ScrollArea::vertical()
+                                    .id_salt("right_pillar_scroll")
+                                    .auto_shrink([false, false])
+                                    .show(ui, |ui| {
+                                        // Wrap the entire right column in a frame to give
+                                        // some consistent right-side padding/breathing room
+                                        egui::Frame::none()
+                                            .inner_margin(egui::Margin {
+                                                left: 0.0,
+                                                right: 20.0,
+                                                top: 0.0,
+                                                bottom: 10.0,
+                                            })
+                                            .show(ui, |ui| {
+                                                self.render_right_column(
+                                                    ctx,
+                                                    ui,
+                                                    text_color,
+                                                    text_dim_color,
+                                                    text_highlight_color,
+                                                    tab_active_color,
+                                                    tab_inactive_color,
+                                                    button_color,
+                                                    button_text_color,
+                                                    work_color,
+                                                    break_color,
+                                                    call_color,
+                                                    bg_color,
+                                                );
+                                            });
+                                    });
+                            });
+                        });
+                    });
+                } else {
+                    ui.centered_and_justified(|ui| {
+                        egui::ScrollArea::vertical()
+                            .id_salt("pure_timer_scroll")
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                ui.vertical_centered(|ui| {
+                                    self.render_pure_timer_layout(
                                         ui,
                                         text_color,
                                         button_color,
                                         button_text_color,
+                                        work_color,
+                                        break_color,
+                                        call_color,
                                         text_dim_color,
                                     );
                                 });
-                        });
-                    });
-
-                    ui.separator();
-
-                    // Side Pillar 2: Timer + Notes area and/or TODOs
-                    ui.allocate_ui(egui::vec2(right_width, full_height), |ui| {
-                        ui.style_mut().spacing.item_spacing.x = 10.0; // Internal spacing
-                        
-                        ui.vertical(|ui| {
-                            egui::ScrollArea::vertical()
-                                .id_salt("right_pillar_scroll")
-                                .auto_shrink([false, false])
-                                .show(ui, |ui| {
-                                    // Wrap the entire right column in a frame to give 
-                                    // some consistent right-side padding/breathing room
-                                    egui::Frame::none()
-                                        .inner_margin(egui::Margin {
-                                            left: 0.0,
-                                            right: 20.0,
-                                            top: 0.0,
-                                            bottom: 10.0,
-                                        })
-                                        .show(ui, |ui| {
-                        self.render_right_column(
-                                                ctx,
-                                                ui,
-                                                text_color,
-                                                text_dim_color,
-                                                text_highlight_color,
-                                                tab_active_color,
-                                                tab_inactive_color,
-                                                button_color,
-                                                button_text_color,
-                                                work_color,
-                                                break_color,
-                                                call_color,
-                                                bg_color,
-                                            );
-                                        });
-                                });
-                        });
-                    });
-                });
-            } else {
-                ui.centered_and_justified(|ui| {
-                    egui::ScrollArea::vertical()
-                        .id_salt("pure_timer_scroll")
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            ui.vertical_centered(|ui| {
-                                self.render_pure_timer_layout(
-                                    ui,
-                                    text_color,
-                                    button_color,
-                                    button_text_color,
-                                    work_color,
-                                    break_color,
-                                    call_color,
-                                    text_dim_color,
-                                );
                             });
-                        });
-                });
-            }
-        });
+                    });
+                }
+            });
 
         // Full-screen / Modal windows
-        self.show_settings_dialog(ctx, text_color, text_dim_color, button_color, button_text_color, tab_active_color);
+        self.show_settings_dialog(
+            ctx,
+            text_color,
+            text_dim_color,
+            button_color,
+            button_text_color,
+            tab_active_color,
+        );
         self.show_help_dialog(ctx, text_color, text_dim_color, button_color);
         self.show_about_dialog(ctx, text_color, text_dim_color, button_color);
-        self.show_survey_dialog(ctx, text_color, text_dim_color, button_color, button_text_color, tab_active_color);
+        self.show_survey_dialog(
+            ctx,
+            text_color,
+            text_dim_color,
+            button_color,
+            button_text_color,
+            tab_active_color,
+        );
         self.show_survey_summary_dialog(ctx, text_color, text_dim_color, button_color);
     }
 
@@ -1220,7 +1277,14 @@ impl PomodoroApp {
         bg_color: egui::Color32,
     ) {
         // Render Timer at the top of the right column
-        self.render_timer(ui, text_color, button_color, work_color, break_color, call_color);
+        self.render_timer(
+            ui,
+            text_color,
+            button_color,
+            work_color,
+            break_color,
+            call_color,
+        );
 
         // Render notes section if enabled
         if self.notes_enabled {
@@ -1246,11 +1310,12 @@ impl PomodoroApp {
                 bg_color,
                 &todo_file,
             );
-            
+
             if let Some(action) = response.action {
                 match action {
                     NotesAction::NotesChanged => {
-                        let _ = notes::save_draft(&self.config.notes_directory, &self.notes_content);
+                        let _ =
+                            notes::save_draft(&self.config.notes_directory, &self.notes_content);
                     }
                     NotesAction::SaveNotes => {
                         self.save_notes();
@@ -1366,12 +1431,19 @@ impl PomodoroApp {
                     } else {
                         self.t.start_button()
                     };
-                    if ui_components::rounded_button(ui, &btn, button_text_color, button_color).clicked() {
+                    if ui_components::rounded_button(ui, &btn, button_text_color, button_color)
+                        .clicked()
+                    {
                         self.toggle_timer();
                     }
                     ui.add_space(10.0);
-                    if ui_components::rounded_button(ui, &self.t.reset_button(), button_text_color, button_color)
-                        .clicked()
+                    if ui_components::rounded_button(
+                        ui,
+                        &self.t.reset_button(),
+                        button_text_color,
+                        button_color,
+                    )
+                    .clicked()
                     {
                         self.reset_timer();
                     }
@@ -1400,7 +1472,14 @@ impl PomodoroApp {
                 } else {
                     self.t.start_call_button()
                 };
-                if ui_components::rounded_button(ui, &call_label, button_text_color, call_button_color).clicked() {
+                if ui_components::rounded_button(
+                    ui,
+                    &call_label,
+                    button_text_color,
+                    call_button_color,
+                )
+                .clicked()
+                {
                     if self.call_state.is_active {
                         self.end_call();
                     } else {
@@ -1409,26 +1488,52 @@ impl PomodoroApp {
                 }
             });
             ui.add_space(40.0);
-            if ui_components::rounded_button(ui, &self.t.settings_btn(), button_text_color, button_color).clicked() {
+            if ui_components::rounded_button(
+                ui,
+                &self.t.settings_btn(),
+                button_text_color,
+                button_color,
+            )
+            .clicked()
+            {
                 self.temp_work_duration = self.config.work_duration;
                 self.temp_break_duration = self.config.break_duration;
                 self.temp_notes_directory = self.config.notes_directory.clone();
                 self.temp_theme = self.config.theme.clone();
                 self.show_settings = true;
             }
-            if ui_components::rounded_button(ui, &self.t.survey_summary_title(), button_text_color, button_color).clicked() {
+            if ui_components::rounded_button(
+                ui,
+                &self.t.survey_summary_title(),
+                button_text_color,
+                button_color,
+            )
+            .clicked()
+            {
                 self.show_survey_summary = true;
             }
             ui.add_space(10.0);
-            let notes_label = if self.notes_enabled { self.t.notes_on() } else { self.t.notes_off() };
-            if ui_components::rounded_button(ui, &notes_label, button_text_color, button_color).clicked() {
+            let notes_label = if self.notes_enabled {
+                self.t.notes_on()
+            } else {
+                self.t.notes_off()
+            };
+            if ui_components::rounded_button(ui, &notes_label, button_text_color, button_color)
+                .clicked()
+            {
                 self.notes_enabled = !self.notes_enabled;
                 self.config.notes_enabled = self.notes_enabled;
                 let _ = self.config.save();
             }
             ui.add_space(10.0);
-            let todo_label = if self.todo_enabled { self.t.todo_on() } else { self.t.todo_off() };
-            if ui_components::rounded_button(ui, &todo_label, button_text_color, button_color).clicked() {
+            let todo_label = if self.todo_enabled {
+                self.t.todo_on()
+            } else {
+                self.t.todo_off()
+            };
+            if ui_components::rounded_button(ui, &todo_label, button_text_color, button_color)
+                .clicked()
+            {
                 self.todo_enabled = !self.todo_enabled;
                 self.config.todo_enabled = self.todo_enabled;
                 let _ = self.config.save();
@@ -1439,7 +1544,14 @@ impl PomodoroApp {
                     .size(12.0)
                     .color(_text_dim_color),
             );
-            if ui_components::rounded_button(ui, &self.t.help_button(), button_text_color, button_color).clicked() {
+            if ui_components::rounded_button(
+                ui,
+                &self.t.help_button(),
+                button_text_color,
+                button_color,
+            )
+            .clicked()
+            {
                 self.show_help = true;
             }
         });
@@ -1512,9 +1624,9 @@ impl PomodoroApp {
                 });
             // Ensure we handle mouse interaction correctly for standard egui Areas
             if ui.input(|i| i.pointer.any_pressed()) && self.dropdown_visible {
-                 // We let the clicked() check above handle selection, 
-                 // but we need to make sure the Area doesn't block interaction 
-                 // if clicked outside (though Area usually doesn't unless modal)
+                // We let the clicked() check above handle selection,
+                // but we need to make sure the Area doesn't block interaction
+                // if clicked outside (though Area usually doesn't unless modal)
             }
         }
     }
@@ -1556,7 +1668,10 @@ impl PomodoroApp {
                                 .size(18.0)
                                 .color(text_dim_color),
                             );
-                            ui.add(egui::Slider::new(&mut self.temp_work_duration, 1..=60).show_value(false));
+                            ui.add(
+                                egui::Slider::new(&mut self.temp_work_duration, 1..=60)
+                                    .show_value(false),
+                            );
                         });
                         ui.add_space(15.0);
                         ui.horizontal(|ui| {
@@ -1570,7 +1685,10 @@ impl PomodoroApp {
                                 .size(18.0)
                                 .color(text_dim_color),
                             );
-                            ui.add(egui::Slider::new(&mut self.temp_break_duration, 1..=30).show_value(false));
+                            ui.add(
+                                egui::Slider::new(&mut self.temp_break_duration, 1..=30)
+                                    .show_value(false),
+                            );
                         });
                         ui.add_space(20.0);
                         ui.horizontal(|ui| {
@@ -1607,8 +1725,19 @@ impl PomodoroApp {
                         ui.add_space(20.0);
                         ui.horizontal(|ui| {
                             ui.add_space(40.0);
-                            let survey_label = if self.config.survey_enabled { self.t.surveys_on() } else { self.t.surveys_off() };
-                            if ui_components::rounded_button(ui, &survey_label, button_text_color, button_color).clicked() {
+                            let survey_label = if self.config.survey_enabled {
+                                self.t.surveys_on()
+                            } else {
+                                self.t.surveys_off()
+                            };
+                            if ui_components::rounded_button(
+                                ui,
+                                &survey_label,
+                                button_text_color,
+                                button_color,
+                            )
+                            .clicked()
+                            {
                                 self.config.survey_enabled = !self.config.survey_enabled;
                                 let _ = self.config.save();
                             }
@@ -1616,7 +1745,14 @@ impl PomodoroApp {
                         ui.add_space(15.0);
                         ui.horizontal(|ui| {
                             ui.add_space(40.0);
-                            if ui_components::rounded_button(ui, &self.t.reset_survey_data_btn(), button_text_color, button_color).clicked() {
+                            if ui_components::rounded_button(
+                                ui,
+                                &self.t.reset_survey_data_btn(),
+                                button_text_color,
+                                button_color,
+                            )
+                            .clicked()
+                            {
                                 self.reset_survey_data();
                             }
                         });
@@ -1632,15 +1768,27 @@ impl PomodoroApp {
                         });
                         ui.horizontal(|ui| {
                             ui.add_space(60.0);
-                            ui.radio_value(&mut self.config.bell_tune, otamot::config::BellTune::Default, self.t.tune_default());
+                            ui.radio_value(
+                                &mut self.config.bell_tune,
+                                otamot::config::BellTune::Default,
+                                self.t.tune_default(),
+                            );
                         });
                         ui.horizontal(|ui| {
                             ui.add_space(60.0);
-                            ui.radio_value(&mut self.config.bell_tune, otamot::config::BellTune::LaCukaracha, self.t.tune_cukaracha());
+                            ui.radio_value(
+                                &mut self.config.bell_tune,
+                                otamot::config::BellTune::LaCukaracha,
+                                self.t.tune_cukaracha(),
+                            );
                         });
                         ui.horizontal(|ui| {
                             ui.add_space(60.0);
-                            ui.radio_value(&mut self.config.bell_tune, otamot::config::BellTune::IceCreamTruck, self.t.tune_icecream());
+                            ui.radio_value(
+                                &mut self.config.bell_tune,
+                                otamot::config::BellTune::IceCreamTruck,
+                                self.t.tune_icecream(),
+                            );
                         });
 
                         // Update bell config immediately when changed in settings
@@ -1709,7 +1857,14 @@ impl PomodoroApp {
                         ui.add_space(40.0);
                         ui.horizontal(|ui| {
                             ui.add_space(40.0);
-                            if ui_components::rounded_button(ui, &self.t.button_cancel(), button_text_color, button_color).clicked() {
+                            if ui_components::rounded_button(
+                                ui,
+                                &self.t.button_cancel(),
+                                button_text_color,
+                                button_color,
+                            )
+                            .clicked()
+                            {
                                 self.show_settings = false;
                                 self.temp_work_duration = self.config.work_duration;
                                 self.temp_break_duration = self.config.break_duration;
@@ -1717,7 +1872,14 @@ impl PomodoroApp {
                                 self.temp_language = self.config.language;
                             }
                             ui.add_space(15.0);
-                            if ui_components::rounded_button(ui, &self.t.button_save(), button_text_color, tab_active_color).clicked() {
+                            if ui_components::rounded_button(
+                                ui,
+                                &self.t.button_save(),
+                                button_text_color,
+                                tab_active_color,
+                            )
+                            .clicked()
+                            {
                                 self.save_settings();
                                 self.show_settings = false;
                             }
@@ -1761,11 +1923,15 @@ impl PomodoroApp {
                                 )
                                 .color(text_dim_color),
                             );
-                            if ui_components::icon_button(ui, "-", text_color, button_color).clicked() {
+                            if ui_components::icon_button(ui, "-", text_color, button_color)
+                                .clicked()
+                            {
                                 self.survey_focus_rating =
                                     self.survey_focus_rating.saturating_sub(1).max(1);
                             }
-                            if ui_components::icon_button(ui, "+", text_color, button_color).clicked() {
+                            if ui_components::icon_button(ui, "+", text_color, button_color)
+                                .clicked()
+                            {
                                 self.survey_focus_rating =
                                     self.survey_focus_rating.saturating_add(1).min(10);
                             }
@@ -1810,10 +1976,24 @@ impl PomodoroApp {
                             );
                         }
                         ui.horizontal(|ui| {
-                            if ui_components::rounded_button(ui, &self.t.button_skip(), button_text_color, button_color).clicked() {
+                            if ui_components::rounded_button(
+                                ui,
+                                &self.t.button_skip(),
+                                button_text_color,
+                                button_color,
+                            )
+                            .clicked()
+                            {
                                 self.skip_survey();
                             }
-                            if ui_components::rounded_button(ui, &self.t.button_submit(), button_text_color, tab_active_color).clicked() {
+                            if ui_components::rounded_button(
+                                ui,
+                                &self.t.button_submit(),
+                                button_text_color,
+                                tab_active_color,
+                            )
+                            .clicked()
+                            {
                                 self.submit_survey();
                             }
                         });
@@ -2046,13 +2226,9 @@ impl PomodoroApp {
                 ui.add_space(20.0);
                 ui.label(egui::RichText::new(self.t.about_description()).color(text_color));
                 ui.add_space(20.0);
+                ui.label(egui::RichText::new(self.t.about_version(version)).color(text_color));
                 ui.label(
-                    egui::RichText::new(self.t.about_version(version))
-                        .color(text_color),
-                );
-                ui.label(
-                    egui::RichText::new(self.t.about_release_date(release_date))
-                        .color(text_color),
+                    egui::RichText::new(self.t.about_release_date(release_date)).color(text_color),
                 );
                 ui.add_space(40.0);
 

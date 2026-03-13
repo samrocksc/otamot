@@ -141,8 +141,8 @@ impl Theme {
             button_text: CustomColor::new(0xFF, 0xFF, 0xFF), // Pure white text on colored buttons
             work: CustomColor::new(0xF9, 0x26, 0x72),
             b_break: CustomColor::new(0x74, 0xbc, 0x44),
-            button: CustomColor::new(0x38, 0x97, 0xd8),    // Blue button
-            bg: CustomColor::new(0xFF, 0xFF, 0xFF),       // Pure white background
+            button: CustomColor::new(0x38, 0x97, 0xd8), // Blue button
+            bg: CustomColor::new(0xFF, 0xFF, 0xFF),     // Pure white background
             tab_active: CustomColor::new(0xAE, 0x81, 0xFF),
             tab_inactive: CustomColor::new(0xE6, 0xE6, 0xE6),
         }
@@ -192,15 +192,29 @@ impl Default for BellTune {
     }
 }
 
-fn default_true() -> bool { true }
-fn default_survey_enabled() -> bool { true }
-fn default_work_duration() -> u32 { 25 }
-fn default_break_duration() -> u32 { 5 }
+fn default_true() -> bool {
+    true
+}
+fn default_survey_enabled() -> bool {
+    true
+}
+fn default_work_duration() -> u32 {
+    25
+}
+fn default_break_duration() -> u32 {
+    5
+}
 fn default_notes_directory() -> String {
-    format!("{}/.config/otamot/notes", std::env::var("HOME").unwrap_or_else(|_| ".".to_string()))
+    format!(
+        "{}/.config/otamot/notes",
+        std::env::var("HOME").unwrap_or_else(|_| ".".to_string())
+    )
 }
 fn default_todo_file() -> String {
-    format!("{}/.config/otamot/TODO.md", std::env::var("HOME").unwrap_or_else(|_| ".".to_string()))
+    format!(
+        "{}/.config/otamot/TODO.md",
+        std::env::var("HOME").unwrap_or_else(|_| ".".to_string())
+    )
 }
 
 fn default_slash_commands() -> HashMap<String, String> {

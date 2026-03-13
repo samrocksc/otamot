@@ -1,7 +1,7 @@
-use eframe::egui;
-use crate::ui_components;
 use crate::localization::T;
 use crate::timer::TimerMode;
+use crate::ui_components;
+use eframe::egui;
 
 pub struct TimerView<'a> {
     pub is_running: bool,
@@ -25,7 +25,15 @@ pub enum TimerAction {
 }
 
 impl<'a> TimerView<'a> {
-    pub fn show(&self, ui: &mut egui::Ui, text_color: egui::Color32, button_color: egui::Color32, work_color: egui::Color32, break_color: egui::Color32, call_color: egui::Color32) -> Option<TimerAction> {
+    pub fn show(
+        &self,
+        ui: &mut egui::Ui,
+        text_color: egui::Color32,
+        button_color: egui::Color32,
+        work_color: egui::Color32,
+        break_color: egui::Color32,
+        call_color: egui::Color32,
+    ) -> Option<TimerAction> {
         let mut action = None;
         ui.horizontal(|ui| {
             ui.add_space(10.0);
@@ -69,7 +77,13 @@ impl<'a> TimerView<'a> {
                     action = Some(TimerAction::Toggle);
                 }
                 ui.add_space(8.0);
-                if ui_components::rounded_button(ui, &self.t.reset_button(), text_color, button_color).clicked()
+                if ui_components::rounded_button(
+                    ui,
+                    &self.t.reset_button(),
+                    text_color,
+                    button_color,
+                )
+                .clicked()
                 {
                     action = Some(TimerAction::Reset);
                 }
@@ -100,7 +114,9 @@ impl<'a> TimerView<'a> {
                 self.t.start_call_button()
             };
 
-            if ui_components::rounded_button(ui, &call_label, text_color, call_button_color).clicked() {
+            if ui_components::rounded_button(ui, &call_label, text_color, call_button_color)
+                .clicked()
+            {
                 action = if self.call_mode_active {
                     Some(TimerAction::EndCall)
                 } else {
@@ -111,7 +127,14 @@ impl<'a> TimerView<'a> {
             if self.notes_enabled && self.has_notes_content && !self.call_mode_active {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(10.0);
-                    if ui_components::small_rounded_button(ui, &self.t.save_notes_btn(), text_color, egui::Color32::from_rgb(0x27, 0xae, 0x60)).clicked() {
+                    if ui_components::small_rounded_button(
+                        ui,
+                        &self.t.save_notes_btn(),
+                        text_color,
+                        egui::Color32::from_rgb(0x27, 0xae, 0x60),
+                    )
+                    .clicked()
+                    {
                         action = Some(TimerAction::SaveNotes);
                     }
                 });

@@ -63,7 +63,7 @@ impl TodoList {
                 Ok(content) => {
                     // Try to parse as JSON if it ends in .json
                     if path.extension().and_then(|s| s.to_str()) == Some("json") {
-                         serde_json::from_str::<TodoList>(&content).unwrap_or_default()
+                        serde_json::from_str::<TodoList>(&content).unwrap_or_default()
                     } else {
                         // Fall back to parsing markdown TODO format
                         Self::from_markdown(&content)
@@ -120,9 +120,9 @@ impl TodoList {
 
     pub fn save(&self) {
         if self.todo_file.is_empty() {
-             let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-             let default_path = format!("{}/.config/otamot/TODO.md", home);
-             return self.save_to_path(&default_path);
+            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+            let default_path = format!("{}/.config/otamot/TODO.md", home);
+            return self.save_to_path(&default_path);
         }
         self.save_to_path(&self.todo_file);
     }
@@ -229,13 +229,13 @@ impl TodoList {
 
         for line in content.lines() {
             let trimmed = line.trim();
-            
+
             // Look for the start of the TODO section
             if trimmed == "# TODO" {
                 in_todo_section = true;
                 continue;
             }
-            
+
             // If we hit another top-level header, we have exited the TODO section
             if in_todo_section && trimmed.starts_with("# ") && trimmed != "# TODO" {
                 break;
