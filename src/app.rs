@@ -724,7 +724,7 @@ impl eframe::App for PomodoroApp {
              }
         }
         if ctx.input(|i| i.key_pressed(egui::Key::Comma) && i.modifiers.command) {
-            self.reset_timer();
+            self.show_settings = true;
         }
 
         if ctx.input(|i| i.key_pressed(egui::Key::Period) && i.modifiers.command) {
@@ -755,6 +755,21 @@ impl eframe::App for PomodoroApp {
             self.notes_content = insert_date_bullet(&self.notes_content);
             self.focus_notes_input = true;
             self.requested_cursor_pos = Some(19);
+        }
+
+        // CMD/CTRL+K: Insert markdown link syntax []()
+        if ctx.input(|i| i.key_pressed(egui::Key::K) && i.modifiers.command)
+            && self.notes_enabled
+            && self.notes_view == NotesView::Edit
+        {
+            let is_focused = ctx.memory(|mem| mem.has_focus(egui::Id::new("notes_text_input")));
+            if is_focused {
+                let byte_pos = self.get_notes_byte_pos();
+                self.notes_content.insert_str(byte_pos, "[]()");
+                // Position cursor inside the [] brackets (1 character after insertion point)
+                self.requested_cursor_pos = Some(self.notes_cursor_pos + 1);
+                ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::K));
+            }
         }
 
         if ctx.input(|i| i.key_pressed(egui::Key::Slash) && i.modifiers.ctrl && i.modifiers.shift) {
@@ -1473,11 +1488,12 @@ impl PomodoroApp {
                             egui::ComboBox::from_id_salt("theme_selector")
                                 .selected_text(&self.temp_theme.name)
                                 .show_ui(ui, |ui| {
-                                    let themes: [Theme; 4] = [
+                                    let themes: [Theme; 5] = [
+                                        Theme::light(),
+                                        Theme::dark(),
                                         Theme::robotic_lime(),
                                         Theme::monokai_dark(),
                                         Theme::monokai_light(),
-                                        Theme::dark(),
                                     ];
                                     for theme in themes {
                                         ui.selectable_value(
@@ -1769,7 +1785,6 @@ impl PomodoroApp {
                                     ("Space", self.t.shortcut_start_pause()),
                                     ("R", self.t.shortcut_reset()),
                                     ("Cmd/Ctrl + .", self.t.shortcut_start_pause()),
-                                    ("Cmd/Ctrl + ,", self.t.shortcut_reset()),
                                 ],
                             ),
                             (
@@ -1787,6 +1802,7 @@ impl PomodoroApp {
                                 vec![
                                     ("Ctrl+?", self.t.shortcut_toggle_help()),
                                     ("Cmd/Ctrl + Shift + /", self.t.shortcut_toggle_help()),
+                                    ("Cmd/Ctrl + ,", self.t.shortcut_settings()),
                                 ],
                             ),
                         ];
