@@ -310,6 +310,110 @@ pub fn rounded_button(
     )
 }
 
+/// A sidebar button with consistent sizing, hover effects, and theme support.
+/// All sidebar buttons are guaranteed to have equal width and height.
+pub fn sidebar_button(
+    ui: &mut egui::Ui,
+    label: &str,
+    text_color: egui::Color32,
+    bg_color: egui::Color32,
+) -> egui::Response {
+    // Fixed dimensions for consistency across all sidebar buttons
+    const BUTTON_WIDTH: f32 = 140.0;
+    const BUTTON_HEIGHT: f32 = 36.0;
+    const ROUNDING: f32 = 6.0;
+
+    // Calculate hover color by brightening the background
+    let hover_bg = egui::Color32::from_rgb(
+        (bg_color.r() as u16).saturating_add(20).min(255) as u8,
+        (bg_color.g() as u16).saturating_add(20).min(255) as u8,
+        (bg_color.b() as u16).saturating_add(20).min(255) as u8,
+    );
+
+    // Create button with fixed size
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(BUTTON_WIDTH, BUTTON_HEIGHT),
+        egui::Sense::click(),
+    );
+
+    // Handle hover styling
+    let fill_color = if response.hovered() {
+        hover_bg
+    } else {
+        bg_color
+    };
+
+    // Draw the button background
+    ui.painter().rect_filled(
+        rect,
+        egui::Rounding::same(ROUNDING),
+        fill_color,
+    );
+
+    // Draw the button text centered
+    let text_pos = rect.center();
+    let galley = ui.painter().layout_no_wrap(
+        label.to_owned(),
+        egui::FontId::proportional(14.0),
+        text_color,
+    );
+    let text_rect = egui::Align2::CENTER_CENTER.anchor_size(text_pos, galley.size());
+    ui.painter().galley(text_rect.min, galley, text_color);
+
+    response
+}
+
+/// A sidebar icon button (for collapse toggle) with consistent sizing and hover effects.
+pub fn sidebar_icon_button(
+    ui: &mut egui::Ui,
+    icon: &str,
+    text_color: egui::Color32,
+    bg_color: egui::Color32,
+) -> egui::Response {
+    // Fixed dimensions for consistency
+    const BUTTON_SIZE: f32 = 36.0;
+    const ROUNDING: f32 = 6.0;
+
+    // Calculate hover color
+    let hover_bg = egui::Color32::from_rgb(
+        (bg_color.r() as u16).saturating_add(20).min(255) as u8,
+        (bg_color.g() as u16).saturating_add(20).min(255) as u8,
+        (bg_color.b() as u16).saturating_add(20).min(255) as u8,
+    );
+
+    // Allocate exact size
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(BUTTON_SIZE, BUTTON_SIZE),
+        egui::Sense::click(),
+    );
+
+    // Handle hover styling
+    let fill_color = if response.hovered() {
+        hover_bg
+    } else {
+        bg_color
+    };
+
+    // Draw the button background
+    ui.painter().rect_filled(
+        rect,
+        egui::Rounding::same(ROUNDING),
+        fill_color,
+    );
+
+    // Draw the icon centered
+    let text_pos = rect.center();
+    let galley = ui.painter().layout_no_wrap(
+        icon.to_owned(),
+        egui::FontId::proportional(14.0),
+        text_color,
+    );
+    let text_rect = egui::Align2::CENTER_CENTER.anchor_size(text_pos, galley.size());
+    ui.painter().galley(text_rect.min, galley, text_color);
+
+    response
+}
+
 /// A smaller rounded button for actions like "Add" or "Clear".
 pub fn small_rounded_button(
     ui: &mut egui::Ui,
