@@ -4,7 +4,8 @@
 
 This release includes **7 commits** addressing bug fixes and enhancements from GitHub issues.
 
-### Commits Included:
+### Commits Included
+
 1. `3e3ed53` - feat(#48): add CMD+S hotkey for saving notes
 2. `f267167` - feat(#49): add Call Mode for call timer functionality
 3. `37a2150` - fix(#50): handle non-retina screen changes gracefully
@@ -20,42 +21,48 @@ This release includes **7 commits** addressing bug fixes and enhancements from G
 ### 🔴 Critical Bug Fixes
 
 #### Issue #44: Tray Icon Visibility
-- [ ] **Test**: Launch the app and verify the tray icon is visible in the system menu bar
-- [ ] **Test**: The icon should appear as a template image (adapts to light/dark mode on macOS)
-- [ ] **Test**: Clicking the tray icon should show/hide the app window
+
+- [x] **Test**: Launch the app and verify the tray icon is visible in the system menu bar
+- [x] **Test**: The icon should appear as a template image (adapts to light/dark mode on macOS)
+- [x] **Test**: Clicking the tray icon should show/hide the app window
 
 #### Issue #50: Non-Retina Screen Segfault
-- [ ] **Test**: Connect a non-Retina external monitor
-- [ ] **Test**: Move the app window between Retina and non-Retina displays
-- [ ] **Test**: Disconnect and reconnect the external monitor - app should not crash
-- [ ] **Test**: Verify window position/size persists correctly across monitor changes
+
+- [x] **Test**: Connect a non-Retina external monitor
+- [x] **Test**: Move the app window between Retina and non-Retina displays
+- [x] **Test**: Disconnect and reconnect the external monitor - app should not crash
+- [x] **Test**: Verify window position/size persists correctly across monitor changes
 
 ---
 
 ### 🟢 New Features
 
 #### Issue #48: Save Notes Hotkey (CMD/CTRL+S)
-- [ ] **Test**: Open notes editor (Edit tab)
-- [ ] **Test**: Type some text in the notes
-- [ ] **Test**: Press CMD+S (macOS) or CTRL+S (Windows/Linux)
-- [ ] **Test**: Verify notes are saved (check notification or file saved)
-- [ ] **Test**: Try in different notes views (Edit, Preview, Project)
+
+- [x] **Test**: Open notes editor (Edit tab)
+- [x] **Test**: Type some text in the notes
+- [x] **Test**: Press CMD+S (macOS) or CTRL+S (Windows/Linux)
+- [x] **Test**: Verify notes are saved (check notification or file saved)
+- [x] **Test**: Try in different notes views (Edit, Preview, Project)
 
 #### Issue #47: Settings Hotkey (CMD/CTRL+,)
-- [ ] **Test**: Press CMD+, (macOS) or CTRL+, (Windows/Linux)
-- [ ] **Test**: Settings dialog should open
-- [ ] **Test**: Press ESC to close settings
-- [ ] **Test**: Try opening settings from different app states
+
+- [x] **Test**: Press CMD+, (macOS) or CTRL+, (Windows/Linux)
+- [x] **Test**: Settings dialog should open
+- [x] **Test**: Press ESC to close settings
+- [x] **Test**: Try opening settings from different app states
 
 #### Issue #45: Markdown Link Hotkey (CMD/CTRL+K)
-- [ ] **Test**: Open notes editor (Edit tab)
-- [ ] **Test**: Position cursor in text area
-- [ ] **Test**: Press CMD+K (macOS) or CTRL+K (Windows/Linux)
-- [ ] **Test**: Verify `[]()` is inserted and cursor is positioned inside `[]`
-- [ ] **Test**: Type link text and URL to complete the markdown link
+
+- [x] **Test**: Open notes editor (Edit tab)
+- [x] **Test**: Position cursor in text area
+- [x] **Test**: Press CMD+K (macOS) or CTRL+K (Windows/Linux)
+- [x] **Test**: Verify `[]()` is inserted and cursor is positioned inside `[]`
+- [x] **Test**: Type link text and URL to complete the markdown link
 
 #### Issue #49: Call Mode
-- [ ] **Test**: Open the app and locate the "Start Call" button
+
+- [x] **Test**: Open the app and locate the "Start Call" button
 - [ ] **Test**: Click "Start Call" - timer should switch to counting UP
 - [ ] **Test**: Verify timer format: MM:SS for calls under an hour, HH:MM:SS for longer
 - [ ] **Test**: Add some notes during the call
@@ -68,6 +75,7 @@ This release includes **7 commits** addressing bug fixes and enhancements from G
 - [ ] **Test**: Test with both English and German locales
 
 #### Issue #52: Light Theme
+
 - [ ] **Test**: Open Settings (gear icon or CMD+,)
 - [ ] **Test**: Navigate to theme selector
 - [ ] **Test**: Select "Light" theme
@@ -80,6 +88,7 @@ This release includes **7 commits** addressing bug fixes and enhancements from G
   - [ ] Notes editor readable
 
 #### Issue #51: Sidebar Buttons Consistency
+
 - [ ] **Test**: Open sidebar
 - [ ] **Test**: Verify all buttons have equal size
 - [ ] **Test**: Check hover effects on buttons
@@ -91,6 +100,7 @@ This release includes **7 commits** addressing bug fixes and enhancements from G
 ### 🔄 Regression Testing
 
 #### Core Functionality
+
 - [ ] **Test**: Start a Pomodoro timer (25 min work session)
 - [ ] **Test**: Timer counts down correctly
 - [ ] **Test**: Break timer works after work session
@@ -98,14 +108,15 @@ This release includes **7 commits** addressing bug fixes and enhancements from G
 - [ ] **Test**: Notes are saved correctly
 
 #### Keyboard Shortcuts Summary
-| Shortcut | Action |
-|----------|--------|
-| CMD+S | Save notes |
-| CMD+, | Open settings |
-| CMD+K | Insert markdown link |
-| CMD+Shift+/ | Toggle help menu |
-| Space | Start/Pause timer |
-| R | Reset timer |
+
+| Shortcut    | Action               |
+| ----------- | -------------------- |
+| CMD+S       | Save notes           |
+| CMD+,       | Open settings        |
+| CMD+K       | Insert markdown link |
+| CMD+Shift+/ | Toggle help menu     |
+| Space       | Start/Pause timer    |
+| R           | Reset timer          |
 
 ---
 
@@ -156,3 +167,4 @@ git push origin v0.10.0
 # Create GitHub release
 gh release create v0.10.0 --title "v0.10.0" --notes-file RELEASE_NOTES.md
 ```
+

@@ -1882,6 +1882,7 @@ impl PomodoroApp {
                             {
                                 self.save_settings();
                                 self.show_settings = false;
+                                ctx.request_repaint(); // Force immediate repaint for theme changes
                             }
                         });
                         ui.add_space(20.0);
