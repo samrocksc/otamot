@@ -1809,6 +1809,7 @@ impl PomodoroApp {
                                     .size(18.0)
                                     .color(text_dim_color),
                             );
+                            let current_theme = self.temp_theme.clone();
                             egui::ComboBox::from_id_salt("theme_selector")
                                 .selected_text(&self.temp_theme.name)
                                 .show_ui(ui, |ui| {
@@ -1827,6 +1828,12 @@ impl PomodoroApp {
                                         );
                                     }
                                 });
+                            // Auto-apply and save theme change immediately
+                            if self.temp_theme != current_theme {
+                                self.config.theme = self.temp_theme.clone();
+                                let _ = self.config.save();
+                                ctx.request_repaint();
+                            }
                         });
                         ui.add_space(20.0);
                         ui.horizontal(|ui| {
