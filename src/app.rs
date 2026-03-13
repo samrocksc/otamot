@@ -345,20 +345,47 @@ impl PomodoroApp {
         let icon = (|| {
             let icon_bytes = include_bytes!("../assets/icon.png");
             let img = image::load_from_memory(icon_bytes).ok()?;
-            let img = img.resize(32, 32, image::imageops::FilterType::Lanczos3);
+            let img = img.resize(22, 22, image::imageops::FilterType::Lanczos3);
             let rgba = img.to_rgba8();
             let (width, height) = rgba.dimensions();
             tray_icon::Icon::from_rgba(rgba.into_raw(), width, height).ok()
         })()
         .unwrap_or_else(|| {
-            // Fallback to a solid red pixel if loading fails, so it's not transparent
-            tray_icon::Icon::from_rgba(vec![220, 20, 60, 255], 1, 1).unwrap()
+            // Fallback to a visible red tomato-like circle (22x22)
+            // Create a simple circle pattern as fallback
+            let size = 22u32;
+            let mut pixels = vec![0u8; (size * size * 4) as usize];
+            let center = (size / 2) as f32;
+            let radius = (size / 2 - 2) as f32;
+            for y in 0..size {
+                for x in 0..size {
+                    let dx = x as f32 - center;
+                    let dy = y as f32 - center;
+                    let dist = (dx * dx + dy * dy).sqrt();
+                    let idx = ((y * size + x) * 4) as usize;
+                    if dist <= radius {
+                        // Crimson red tomato color
+                        pixels[idx] = 220;     // R
+                        pixels[idx + 1] = 20;  // G
+                        pixels[idx + 2] = 60;  // B
+                        pixels[idx + 3] = 255; // A
+                    } else if dist <= radius + 1.5 {
+                        // Dark red outline for visibility
+                        pixels[idx] = 139;     // R
+                        pixels[idx + 1] = 0;  // G
+                        pixels[idx + 2] = 0;  // B
+                        pixels[idx + 3] = 255; // A
+                    }
+                }
+            }
+            tray_icon::Icon::from_rgba(pixels, size, size).unwrap()
         });
 
         let tray_icon = TrayIconBuilder::new()
             .with_menu(Box::new(tray_menu))
             .with_tooltip("Otamot")
             .with_icon(icon)
+            .with_icon_as_template(true)
             .build()
             .unwrap();
 
@@ -1892,5 +1919,12 @@ impl PomodoroApp {
                 }
             });
         });
+    }
+
+    /// Disable egui memory persistence to prevent segfaults when switching between
+    /// monitors with different DPIs (e.g., Retina to non-Retina displays).
+    /// This prevents window position/size corruption when the screen resolution changes.
+    fn persist_egui_memory(&self) -> bool {
+        false
     }
 }
