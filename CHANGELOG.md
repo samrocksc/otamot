@@ -4,6 +4,35 @@ All notable changes to the productivity pizza that is **Otamot** will be documen
 
 ---
 
+## [v0.10.0] - 2026-03-16
+
+### ✨ New Features & Improvements
+
+- **Auto-Save Settings** — All settings changes now save automatically. No more "Save" button needed — just change and close!
+- **Instant Theme Updates** — Theme changes apply immediately without needing to save.
+- **Call Mode** — New timer mode for tracking call durations (counts up instead of down).
+
+### 🐛 Bug Fixes
+
+- **Call Mode Fixes** — Multiple bug fixes for call mode, help hotkey, and sidebar.
+- **Settings Repaint** — Fixed immediate visual update after saving settings.
+- **Sidebar Divider** — Shortened sidebar divider to match button width.
+
+---
+
+## [v0.9.0] - 2026-03-06
+
+### ✨ New Features
+
+- 🔔 **Tray Icon** — Visible tray icon in system menu bar (Issue #44)
+- ⌨️ **Settings Hotkey** — CMD+, opens settings (Issue #47)
+- 💾 **Save Notes Hotkey** — CMD+S saves notes (Issue #48)
+- 📞 **Call Mode** — Timer counts up for call tracking (Issue #49)
+- 🖥️ **Non-Retina Support** — Handle non-Retina screen changes gracefully (Issue #50)
+- 🎨 **Sidebar Consistency** — Refactored sidebar buttons for consistency (Issue #51)
+
+---
+
 ## [v0.7.1] - 2026-03-06
 
 ### ✨ New Features (The Cowabunga Update!)
