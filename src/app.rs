@@ -104,6 +104,10 @@ pub struct PomodoroApp {
     tray_icon: Option<tray_icon::TrayIcon>,
     #[cfg(not(target_arch = "wasm32"))]
     tray_menu_ids: std::collections::HashMap<String, tray_icon::menu::MenuId>,
+
+    // Active listening notification state
+    active_listening_next_notification: Option<Instant>,
+    active_listening_message_index: usize,
 }
 
 impl PomodoroApp {
@@ -154,6 +158,9 @@ impl PomodoroApp {
             tray_icon: None,
             #[cfg(not(target_arch = "wasm32"))]
             tray_menu_ids: std::collections::HashMap::new(),
+
+            active_listening_next_notification: None,
+            active_listening_message_index: 0,
 
             sessions_completed: survey_data.sessions_completed,
             show_survey: false,
@@ -286,10 +293,17 @@ impl PomodoroApp {
     fn start_call(&mut self) {
         self.call_state.start();
         self.last_tick = Some(Instant::now());
+        // Initialize active listening notifications if enabled
+        if self.config.active_listening_enabled {
+            self.active_listening_next_notification =
+                Some(Instant::now() + Duration::from_secs(180));
+            self.active_listening_message_index = 0;
+        }
     }
 
     fn end_call(&mut self) {
         let duration = self.call_state.end();
+        self.active_listening_next_notification = None;
         // Save call notes if there's content
         if self.notes_enabled && !self.notes_content.is_empty() && duration > 0 {
             self.save_call_notes(duration);
@@ -299,9 +313,9 @@ impl PomodoroApp {
     fn save_call_notes(&mut self, duration_seconds: u32) {
         self.hashtag_library.save();
 
-        let notes_dir = std::path::PathBuf::from(&self.config.notes_directory);
+        let notes_dir = std::path::PathBuf::from(&self.config.call_notes_directory);
         if let Err(e) = std::fs::create_dir_all(&notes_dir) {
-            eprintln!("Failed to create notes directory: {}", e);
+            eprintln!("Failed to create call notes directory: {}", e);
             return;
         }
 
@@ -493,6 +507,25 @@ impl PomodoroApp {
                 if elapsed >= Duration::from_secs(1) {
                     self.call_state.tick();
                     self.last_tick = Some(Instant::now());
+                    // Active listening notifications
+                    if self.config.active_listening_enabled {
+                        if let Some(next) = self.active_listening_next_notification {
+                            if Instant::now() >= next {
+                                const MESSAGES: [&str; 5] = [
+                                    "Are you listening?",
+                                    "Are you smiling?",
+                                    "Nod your head",
+                                    "Check your focus",
+                                    "Are there any clarifying questions that need to be made?",
+                                ];
+                                let idx = self.active_listening_message_index % MESSAGES.len();
+                                self.send_notification("Active Listening", MESSAGES[idx]);
+                                self.active_listening_message_index += 1;
+                                self.active_listening_next_notification =
+                                    Some(Instant::now() + Duration::from_secs(180));
+                            }
+                        }
+                    }
                 }
             }
             return;
@@ -682,7 +715,7 @@ impl eframe::App for PomodoroApp {
             let _ = notes::save_draft(&self.config.notes_directory, &self.notes_content);
         }
 
-        if self.is_running {
+        if self.is_running || self.call_state.is_active {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
 
@@ -879,9 +912,8 @@ impl eframe::App for PomodoroApp {
         }
 
         // CMD/CTRL+SHIFT+/ (or CMD/CTRL+?) to toggle help
-        let help_shortcut = ctx.input(|i| {
-            i.key_pressed(egui::Key::Slash) && i.modifiers.shift && i.modifiers.command
-        });
+        let help_shortcut = ctx
+            .input(|i| i.key_pressed(egui::Key::Slash) && i.modifiers.shift && i.modifiers.command);
         if help_shortcut {
             self.show_help = !self.show_help;
         }
@@ -1678,6 +1710,27 @@ impl PomodoroApp {
                             }
                         });
                         ui.add_space(20.0);
+                        // Call notes directory - auto-save on change
+                        ui.horizontal(|ui| {
+                            ui.add_space(40.0);
+                            ui.label(
+                                egui::RichText::new("Call notes directory:")
+                                    .size(16.0)
+                                    .color(text_dim_color),
+                            );
+                        });
+                        ui.horizontal(|ui| {
+                            ui.add_space(40.0);
+                            let old_call_dir = self.config.call_notes_directory.clone();
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.config.call_notes_directory)
+                                    .desired_width(350.0),
+                            );
+                            if self.config.call_notes_directory != old_call_dir {
+                                let _ = self.config.save();
+                            }
+                        });
+                        ui.add_space(20.0);
                         // TODO file - auto-save on change
                         ui.horizontal(|ui| {
                             ui.add_space(40.0);
@@ -1722,15 +1775,22 @@ impl PomodoroApp {
                         ui.add_space(15.0);
                         ui.horizontal(|ui| {
                             ui.add_space(40.0);
+                            let active_label = if self.config.active_listening_enabled {
+                                "Active Listening: ON"
+                            } else {
+                                "Active Listening: OFF"
+                            };
                             if ui_components::rounded_button(
                                 ui,
-                                &self.t.reset_survey_data_btn(),
+                                active_label,
                                 button_text_color,
                                 button_color,
                             )
                             .clicked()
                             {
-                                self.reset_survey_data();
+                                self.config.active_listening_enabled =
+                                    !self.config.active_listening_enabled;
+                                let _ = self.config.save();
                             }
                         });
                         ui.add_space(20.0);

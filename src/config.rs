@@ -157,6 +157,8 @@ pub struct Config {
     pub break_duration: u32,
     #[serde(default = "default_notes_directory")]
     pub notes_directory: String,
+    #[serde(default = "default_notes_directory")]
+    pub call_notes_directory: String,
     #[serde(default = "default_todo_file")]
     pub todo_file: String,
     #[serde(default)]
@@ -173,6 +175,8 @@ pub struct Config {
     pub kanban_enabled: bool,
     #[serde(default)]
     pub sidebar_collapsed: bool,
+    #[serde(default)]
+    pub active_listening_enabled: bool,
     #[serde(default)]
     pub bell_tune: BellTune,
     #[serde(default)]
@@ -236,6 +240,7 @@ impl Default for Config {
             work_duration: default_work_duration(),
             break_duration: default_break_duration(),
             notes_directory: default_notes_directory(),
+            call_notes_directory: default_notes_directory(),
             todo_file: default_todo_file(),
             notes_enabled: false,
             survey_enabled: default_survey_enabled(),
@@ -244,6 +249,7 @@ impl Default for Config {
             todo_enabled: true,
             kanban_enabled: false,
             sidebar_collapsed: false,
+            active_listening_enabled: false,
             bell_tune: BellTune::Default,
             theme: Theme::robotic_lime(),
         }

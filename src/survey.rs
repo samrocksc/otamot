@@ -116,6 +116,21 @@ impl SurveyData {
         *self = Self::default();
     }
 
+    /// Get top N focus-impacting items (what helped and what hurt) sorted by frequency
+    pub fn top_issues(&self, n: usize) -> Vec<String> {
+        use std::collections::HashMap;
+        let mut freq: HashMap<&String, usize> = HashMap::new();
+        for item in &self.what_helped {
+            *freq.entry(item).or_insert(0) += 1;
+        }
+        for item in &self.what_hurt {
+            *freq.entry(item).or_insert(0) += 1;
+        }
+        let mut items: Vec<(&String, usize)> = freq.into_iter().collect();
+        items.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+        items.into_iter().take(n).map(|(s, _)| s.clone()).collect()
+    }
+
     /// Get the survey file path (public for testing)
     pub fn get_survey_path() -> PathBuf {
         Self::survey_path()

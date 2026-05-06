@@ -92,6 +92,21 @@ pub fn highlight_easymark(egui_style: &egui::Style, mut text: &str) -> egui::tex
                 skip = 0;
             }
             style.raised ^= true;
+        } else if text.starts_with('#') && !start_of_line {
+            // Inline hashtag: #word
+            let tag_end = text[1..]
+                .find(|c: char| !c.is_alphanumeric() && c != '_')
+                .map_or_else(|| text.len(), |i| i + 1);
+            // Only treat as hashtag if there's at least one alphanumeric after #
+            if tag_end > 1 {
+                style.hashtag = true;
+                job.append(&text[..tag_end], 0.0, format_from_style(egui_style, &style));
+                text = &text[tag_end..];
+                style.hashtag = false;
+                start_of_line = false;
+                continue;
+            }
+            skip = 0;
         } else {
             skip = 0;
         }
@@ -100,7 +115,7 @@ pub fn highlight_easymark(egui_style: &egui::Style, mut text: &str) -> egui::tex
             .find('\n')
             .map_or_else(|| text.len(), |i| skip + i + 1);
         let end = text[skip..]
-            .find(&['*', '`', '~', '_', '/', '$', '^', '\\', '<', '['][..])
+            .find(&['*', '`', '~', '_', '/', '$', '^', '\\', '<', '[', '#'][..])
             .map_or_else(|| text.len(), |i| (skip + i).max(1));
 
         if line_end <= end {
@@ -128,7 +143,9 @@ fn format_from_style(
 ) -> egui::text::TextFormat {
     use egui::{Align, Color32, Stroke, TextStyle};
 
-    let color = if emark_style.strong || emark_style.heading {
+    let color = if emark_style.hashtag {
+        egui_style.visuals.text_color().linear_multiply(0.65)
+    } else if emark_style.strong || emark_style.heading {
         egui_style.visuals.strong_text_color()
     } else if emark_style.quoted {
         egui_style.visuals.weak_text_color()

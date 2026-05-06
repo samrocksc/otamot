@@ -60,6 +60,9 @@ pub struct Style {
 
     /// ^raised^
     pub raised: bool,
+
+    /// #hashtag (highlighted in a lighter color)
+    pub hashtag: bool,
 }
 
 pub struct Parser<'a> {
