@@ -4,6 +4,22 @@ All notable changes to the productivity pizza that is **Otamot** will be documen
 
 ---
 
+## [v0.11.0] - 2026-05-06
+
+### ✨ New Features
+
+- **#hashtags Highlighting** — Hashtags in notes now render with a lighter color (65% brightness) for better visual distinction. Bro, your #project tags pop now!
+- **Separate Call Notes Directory** — Call recordings save to a configurable location separate from regular notes. Configurable in Settings.
+- **Active Listening Notifications** — New setting to remind you to stay engaged during calls with periodic prompts (every 3 minutes). Perfect for staying present!
+- **Call Timer Background Running** — Call timer keeps running when the window loses focus. No more timing drift!
+
+### 🐛 Bug Fixes
+
+- Fixed app title typo in debug builds (was showing "otamot-f78b143e..." in ALSA warnings)
+- Call notes now correctly save to `call_notes_directory` config location
+
+---
+
 ## [v0.10.0] - 2026-03-16
 
 ### ✨ New Features & Improvements
