@@ -479,6 +479,8 @@ impl PomodoroApp {
         if let Err(e) = self.survey_data.save() {
             eprintln!("Failed to save survey data: {}", e);
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        self.update_tray_info();
 
         // Reset survey form
         self.survey_focus_rating = 5;
@@ -599,6 +601,15 @@ impl PomodoroApp {
         }
     }
 
+    /// Refreshes tray overview labels from the current in-memory survey state.
+    /// No-op when tray is unavailable (e.g. wasm, or tray setup failed).
+    #[cfg(not(target_arch = "wasm32"))]
+    fn update_tray_info(&self) {
+        if let Some(ref info) = self.tray_info_items {
+            info.refresh(&self.survey_data);
+        }
+    }
+
     fn tick(&mut self) {
         // Handle call mode ticking
         if self.call_state.is_active {
@@ -660,6 +671,8 @@ impl PomodoroApp {
                             self.sessions_completed += 1;
                             self.survey_data.sessions_completed = self.sessions_completed;
                             let _ = self.survey_data.save();
+                            #[cfg(not(target_arch = "wasm32"))]
+                            self.update_tray_info();
                             self.remaining_seconds = self.config.break_duration * 60;
                             self.session_start = None;
                             self.session_end = None;
@@ -2405,7 +2418,10 @@ mod tray_label_tests {
 
     #[test]
     fn test_format_tray_issue_present() {
-        assert_eq!(format_tray_issue(Some("Slack notifications")), "• Slack notifications");
+        assert_eq!(
+            format_tray_issue(Some("Slack notifications")),
+            "• Slack notifications"
+        );
     }
 
     #[test]
