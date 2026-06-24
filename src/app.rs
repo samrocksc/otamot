@@ -153,7 +153,7 @@ struct TrayInfoItems {
 impl TrayInfoItems {
     /// Creates all five disabled menu items populated from `survey`.
     fn new(survey: &SurveyData) -> Self {
-        let top = survey.top_issues(3);
+        let [i0, i1, i2] = Self::top_issue_labels(survey);
         Self {
             score: tray_icon::menu::MenuItem::new(
                 format_tray_score(survey.average_focus, survey.focus_count),
@@ -165,21 +165,9 @@ impl TrayInfoItems {
                 false,
                 None,
             ),
-            issue_0: tray_icon::menu::MenuItem::new(
-                format_tray_issue(top.get(0).map(|s| s.as_str())),
-                false,
-                None,
-            ),
-            issue_1: tray_icon::menu::MenuItem::new(
-                format_tray_issue(top.get(1).map(|s| s.as_str())),
-                false,
-                None,
-            ),
-            issue_2: tray_icon::menu::MenuItem::new(
-                format_tray_issue(top.get(2).map(|s| s.as_str())),
-                false,
-                None,
-            ),
+            issue_0: tray_icon::menu::MenuItem::new(i0, false, None),
+            issue_1: tray_icon::menu::MenuItem::new(i1, false, None),
+            issue_2: tray_icon::menu::MenuItem::new(i2, false, None),
         }
     }
 
@@ -188,17 +176,24 @@ impl TrayInfoItems {
     /// Pre-computes all strings before touching menu items to keep
     /// the borrow of `survey` and the borrow of `self` fully separate.
     fn refresh(&self, survey: &SurveyData) {
-        let top = survey.top_issues(3);
-        let score_text = format_tray_score(survey.average_focus, survey.focus_count);
-        let sessions_text = format_tray_sessions(survey.sessions_completed);
-        let i0 = format_tray_issue(top.get(0).map(|s| s.as_str()));
-        let i1 = format_tray_issue(top.get(1).map(|s| s.as_str()));
-        let i2 = format_tray_issue(top.get(2).map(|s| s.as_str()));
-        self.score.set_text(score_text);
-        self.sessions.set_text(sessions_text);
+        let [i0, i1, i2] = Self::top_issue_labels(survey);
+        self.score
+            .set_text(format_tray_score(survey.average_focus, survey.focus_count));
+        self.sessions
+            .set_text(format_tray_sessions(survey.sessions_completed));
         self.issue_0.set_text(i0);
         self.issue_1.set_text(i1);
         self.issue_2.set_text(i2);
+    }
+
+    /// Returns formatted labels for the top 3 concentration issues.
+    fn top_issue_labels(survey: &SurveyData) -> [String; 3] {
+        let top = survey.top_issues(3);
+        [
+            format_tray_issue(top.get(0).map(|s| s.as_str())),
+            format_tray_issue(top.get(1).map(|s| s.as_str())),
+            format_tray_issue(top.get(2).map(|s| s.as_str())),
+        ]
     }
 }
 
@@ -511,8 +506,7 @@ impl PomodoroApp {
             TrayIconBuilder,
         };
 
-        let survey = otamot::survey::SurveyData::load();
-        let info = TrayInfoItems::new(&survey);
+        let info = TrayInfoItems::new(&self.survey_data);
 
         let tray_menu = Menu::new();
         let start_pause_item = MenuItem::new("Start/Pause", true, None);
