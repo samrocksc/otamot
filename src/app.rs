@@ -103,11 +103,103 @@ pub struct PomodoroApp {
     #[cfg(not(target_arch = "wasm32"))]
     tray_icon: Option<tray_icon::TrayIcon>,
     #[cfg(not(target_arch = "wasm32"))]
+    tray_info_items: Option<TrayInfoItems>,
+    #[cfg(not(target_arch = "wasm32"))]
     tray_menu_ids: std::collections::HashMap<String, tray_icon::menu::MenuId>,
 
     // Active listening notification state
     active_listening_next_notification: Option<Instant>,
     active_listening_message_index: usize,
+}
+
+/// Returns the tray label for the survey score.
+/// Shows "—" when no survey responses have been recorded yet.
+fn format_tray_score(average_focus: f64, focus_count: u32) -> String {
+    if focus_count == 0 {
+        "Survey Score: —".to_string()
+    } else {
+        format!("Survey Score: {:.1}", average_focus)
+    }
+}
+
+/// Returns the tray label for total sessions completed.
+fn format_tray_sessions(sessions_completed: u32) -> String {
+    format!("Sessions Tracked: {}", sessions_completed)
+}
+
+/// Returns the tray label for a single top issue entry.
+/// Falls back to "—" when fewer than 3 issues have been recorded.
+fn format_tray_issue(issue: Option<&str>) -> String {
+    match issue {
+        Some(s) => format!("• {}", s),
+        None => "—".to_string(),
+    }
+}
+
+/// Holds the live `MenuItem` handles for the read-only tray overview row.
+///
+/// Items are disabled (non-clickable) and used only for display.
+/// Call `refresh` after any `SurveyData` mutation to keep labels current.
+#[cfg(not(target_arch = "wasm32"))]
+struct TrayInfoItems {
+    score: tray_icon::menu::MenuItem,
+    sessions: tray_icon::menu::MenuItem,
+    issue_0: tray_icon::menu::MenuItem,
+    issue_1: tray_icon::menu::MenuItem,
+    issue_2: tray_icon::menu::MenuItem,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl TrayInfoItems {
+    /// Creates all five disabled menu items populated from `survey`.
+    fn new(survey: &SurveyData) -> Self {
+        let top = survey.top_issues(3);
+        Self {
+            score: tray_icon::menu::MenuItem::new(
+                format_tray_score(survey.average_focus, survey.focus_count),
+                false,
+                None,
+            ),
+            sessions: tray_icon::menu::MenuItem::new(
+                format_tray_sessions(survey.sessions_completed),
+                false,
+                None,
+            ),
+            issue_0: tray_icon::menu::MenuItem::new(
+                format_tray_issue(top.get(0).map(|s| s.as_str())),
+                false,
+                None,
+            ),
+            issue_1: tray_icon::menu::MenuItem::new(
+                format_tray_issue(top.get(1).map(|s| s.as_str())),
+                false,
+                None,
+            ),
+            issue_2: tray_icon::menu::MenuItem::new(
+                format_tray_issue(top.get(2).map(|s| s.as_str())),
+                false,
+                None,
+            ),
+        }
+    }
+
+    /// Updates all label text from the latest `survey` state.
+    ///
+    /// Pre-computes all strings before touching menu items to keep
+    /// the borrow of `survey` and the borrow of `self` fully separate.
+    fn refresh(&self, survey: &SurveyData) {
+        let top = survey.top_issues(3);
+        let score_text = format_tray_score(survey.average_focus, survey.focus_count);
+        let sessions_text = format_tray_sessions(survey.sessions_completed);
+        let i0 = format_tray_issue(top.get(0).map(|s| s.as_str()));
+        let i1 = format_tray_issue(top.get(1).map(|s| s.as_str()));
+        let i2 = format_tray_issue(top.get(2).map(|s| s.as_str()));
+        self.score.set_text(score_text);
+        self.sessions.set_text(sessions_text);
+        self.issue_0.set_text(i0);
+        self.issue_1.set_text(i1);
+        self.issue_2.set_text(i2);
+    }
 }
 
 impl PomodoroApp {
@@ -156,6 +248,8 @@ impl PomodoroApp {
 
             #[cfg(not(target_arch = "wasm32"))]
             tray_icon: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            tray_info_items: None,
             #[cfg(not(target_arch = "wasm32"))]
             tray_menu_ids: std::collections::HashMap::new(),
 
@@ -2281,5 +2375,35 @@ impl PomodoroApp {
                 }
             });
         });
+    }
+}
+
+#[cfg(test)]
+mod tray_label_tests {
+    use super::*;
+
+    #[test]
+    fn test_format_tray_score_with_data() {
+        assert_eq!(format_tray_score(7.4, 3), "Survey Score: 7.4");
+    }
+
+    #[test]
+    fn test_format_tray_score_no_data() {
+        assert_eq!(format_tray_score(0.0, 0), "Survey Score: —");
+    }
+
+    #[test]
+    fn test_format_tray_sessions() {
+        assert_eq!(format_tray_sessions(12), "Sessions Tracked: 12");
+    }
+
+    #[test]
+    fn test_format_tray_issue_present() {
+        assert_eq!(format_tray_issue(Some("Slack notifications")), "• Slack notifications");
+    }
+
+    #[test]
+    fn test_format_tray_issue_absent() {
+        assert_eq!(format_tray_issue(None), "—");
     }
 }
