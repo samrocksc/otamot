@@ -509,6 +509,9 @@ impl PomodoroApp {
             TrayIconBuilder,
         };
 
+        let survey = otamot::survey::SurveyData::load();
+        let info = TrayInfoItems::new(&survey);
+
         let tray_menu = Menu::new();
         let start_pause_item = MenuItem::new("Start/Pause", true, None);
         let reset_item = MenuItem::new("Reset", true, None);
@@ -522,13 +525,19 @@ impl PomodoroApp {
             .insert("quit".to_string(), quit_item.id().clone());
 
         let _ = tray_menu.append_items(&[
+            &info.score,
+            &info.sessions,
+            &PredefinedMenuItem::separator(),
+            &info.issue_0,
+            &info.issue_1,
+            &info.issue_2,
+            &PredefinedMenuItem::separator(),
             &start_pause_item,
             &reset_item,
             &PredefinedMenuItem::separator(),
             &quit_item,
         ]);
 
-        // Load real icon from assets
         let icon = (|| {
             let icon_bytes = include_bytes!("../assets/icon.png");
             let img = image::load_from_memory(icon_bytes).ok()?;
@@ -538,8 +547,6 @@ impl PomodoroApp {
             tray_icon::Icon::from_rgba(rgba.into_raw(), width, height).ok()
         })()
         .unwrap_or_else(|| {
-            // Fallback to a visible red tomato-like circle (22x22)
-            // Create a simple circle pattern as fallback
             let size = 22u32;
             let mut pixels = vec![0u8; (size * size * 4) as usize];
             let center = (size / 2) as f32;
@@ -551,17 +558,15 @@ impl PomodoroApp {
                     let dist = (dx * dx + dy * dy).sqrt();
                     let idx = ((y * size + x) * 4) as usize;
                     if dist <= radius {
-                        // Crimson red tomato color
-                        pixels[idx] = 220; // R
-                        pixels[idx + 1] = 20; // G
-                        pixels[idx + 2] = 60; // B
-                        pixels[idx + 3] = 255; // A
+                        pixels[idx] = 220;
+                        pixels[idx + 1] = 20;
+                        pixels[idx + 2] = 60;
+                        pixels[idx + 3] = 255;
                     } else if dist <= radius + 1.5 {
-                        // Dark red outline for visibility
-                        pixels[idx] = 139; // R
-                        pixels[idx + 1] = 0; // G
-                        pixels[idx + 2] = 0; // B
-                        pixels[idx + 3] = 255; // A
+                        pixels[idx] = 139;
+                        pixels[idx + 1] = 0;
+                        pixels[idx + 2] = 0;
+                        pixels[idx + 3] = 255;
                     }
                 }
             }
@@ -576,6 +581,7 @@ impl PomodoroApp {
             .build()
             .unwrap();
 
+        self.tray_info_items = Some(info);
         self.tray_icon = Some(tray_icon);
     }
 
