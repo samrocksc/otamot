@@ -4,6 +4,14 @@ All notable changes to the productivity pizza that is **Otamot** will be documen
 
 ---
 
+## [v0.12.0] - 2026-06-24
+
+### ✨ New Features
+
+- **Tray Overview Dropdown** — Clicking the system tray icon now shows a live overview: Survey Score, Sessions Tracked, and your top 3 concentration issues. Updates automatically after each session and survey submission. Bro, your stats are right there in the tray! 🍕
+
+---
+
 ## [v0.11.0] - 2026-05-06
 
 ### ✨ New Features
