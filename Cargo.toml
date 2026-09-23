@@ -35,6 +35,25 @@ rodio = { version = "0.20", default-features = false, features = [
 ] }
 cpal = "0.15"
 whisper-rs = "0.16"
+
+[features]
+# Linux system-audio capture via PulseAudio/PipeWire sink monitors
+pulse-capture = ["dep:libpulse-simple-binding", "dep:libpulse-binding"]
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libpulse-binding = { version = "2", optional = true }
+libpulse-simple-binding = { version = "2", optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = "0.23"
+core-foundation = "0.9"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSString", "NSUUID", "NSObject", "NSValue"] }
+objc2-core-audio = { version = "0.3", features = ["objc2", "objc2-core-audio-types", "block2", "dispatch2"] }
+objc2-core-audio-types = "0.3"
+objc2-core-foundation = "0.3"
+block2 = "0.6"
+dispatch2 = "0.3"
 reqwest = { version = "0.12", default-features = false, features = [
     "blocking",
     "json",

@@ -1,5 +1,6 @@
 use chrono::Local;
 use eframe::egui;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 // otamot library imports
@@ -119,6 +120,25 @@ pub struct PomodoroApp {
     ai_busy: bool,
     ai_status: Option<AiStatus>,
     ai_model_download_progress: Option<f32>,
+    // Cached model lists per endpoint (populated by the ↻ button)
+    ai_models_cache: std::collections::HashMap<String, Vec<String>>,
+    ai_fetching_models: Option<String>,
+    // Endpoint test results per endpoint (None = untested/failed)
+    ai_endpoint_status: std::collections::HashMap<String, bool>,
+    ai_endpoint_status_detail: std::collections::HashMap<String, String>,
+    // Rolling live transcript while recording (partial, from tail window)
+    ai_live_transcript: Option<String>,
+    // Authoritative transcript of the last recording (timestamped turns)
+    ai_last_transcript: Option<String>,
+    // Global hotkey receiver (Cmd+Shift+R by default, macOS only)
+    voice_hotkey_rx: Option<std::sync::mpsc::Receiver<()>>,
+    voice_hotkey_registered: bool,
+    // Which recorder produced the pending transcript (thoughts or call)
+    ai_active_mode: otamot::config::AiMode,
+    // Cached list of input device names for the settings dropdowns
+    ai_input_devices: Vec<String>,
+    // Receiver for detached "Test system audio" results (polled in update)
+    system_audio_test_rx: Option<std::sync::mpsc::Receiver<anyhow::Result<u32>>>,
 }
 
 /// Transient status shown under the timer while the AI pipeline runs.
@@ -284,6 +304,17 @@ impl PomodoroApp {
             ai_busy: false,
             ai_status: None,
             ai_model_download_progress: None,
+            ai_models_cache: std::collections::HashMap::new(),
+            ai_fetching_models: None,
+            ai_endpoint_status: std::collections::HashMap::new(),
+            ai_endpoint_status_detail: std::collections::HashMap::new(),
+            ai_live_transcript: None,
+            ai_last_transcript: None,
+            voice_hotkey_rx: None,
+            voice_hotkey_registered: false,
+            ai_active_mode: otamot::config::AiMode::Thoughts,
+            ai_input_devices: Vec::new(),
+            system_audio_test_rx: None,
 
             sessions_completed: survey_data.sessions_completed,
             show_survey: false,
@@ -422,6 +453,10 @@ impl PomodoroApp {
     fn start_call(&mut self) {
         self.call_state.start();
         self.last_tick = Some(Instant::now());
+        // Auto-start call recording when the AI feature is enabled
+        if self.config.ai_notes_enabled && !self.ai_recording {
+            self.toggle_ai_recording_mode(otamot::config::AiMode::Call);
+        }
         // Initialize active listening notifications if enabled
         if self.config.active_listening_enabled {
             self.active_listening_next_notification =
@@ -433,9 +468,62 @@ impl PomodoroApp {
     fn end_call(&mut self) {
         let duration = self.call_state.end();
         self.active_listening_next_notification = None;
+        // Stop call recording first so its synthesis uses the call prompt
+        if self.ai_recording {
+            self.toggle_ai_recording_mode(otamot::config::AiMode::Call);
+        }
         // Save call notes if there's content
         if self.notes_enabled && !self.notes_content.is_empty() && duration > 0 {
             self.save_call_notes(duration);
+        }
+    }
+
+    /// Refresh the cached input-device list shown in the settings dropdowns.
+    fn refresh_input_device_list(&mut self) {
+        self.ai_input_devices = otamot::audio_ai::list_input_devices();
+    }
+
+    /// Poll the detached "Test system audio" result and surface it on the
+    /// AI status line.
+    fn poll_system_audio_test(&mut self) {
+        let Some(rx) = &self.system_audio_test_rx else {
+            return;
+        };
+        match rx.try_recv() {
+            Ok(Ok(rate)) => {
+                self.ai_status = Some(AiStatus::Done(format!(
+                    "system audio OK via system tap @ {} Hz",
+                    rate
+                )));
+                self.system_audio_test_rx = None;
+            }
+            Ok(Err(e)) => {
+                self.ai_status = Some(AiStatus::Failed(format!("{:#}", e)));
+                self.system_audio_test_rx = None;
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.system_audio_test_rx = None;
+            }
+        }
+    }
+
+    /// Poll the global hotkey (registered lazily on first enabled frame).
+    fn poll_voice_hotkey(&mut self) {
+        if !self.voice_hotkey_registered {
+            self.voice_hotkey_registered = true;
+            self.voice_hotkey_rx = otamot::global_hotkey::register(&self.config.voice_hotkey);
+            if self.voice_hotkey_rx.is_none() {
+                eprintln!(
+                    "global hotkey '{}' not registered (invalid spec or unsupported)",
+                    self.config.voice_hotkey
+                );
+            }
+        }
+        if let Some(rx) = &self.voice_hotkey_rx {
+            if rx.try_recv().is_ok() {
+                self.toggle_ai_recording();
+            }
         }
     }
 
@@ -459,18 +547,28 @@ impl PomodoroApp {
     }
 
     fn toggle_ai_recording(&mut self) {
+        self.toggle_ai_recording_mode(otamot::config::AiMode::Thoughts);
+    }
+
+    fn toggle_ai_recording_mode(&mut self, mode: otamot::config::AiMode) {
+        self.ai_active_mode = mode;
         if self.ai_recording {
             // Stopping: hand the buffer over for transcription + synthesis
             if let Some(worker) = &self.ai_worker {
                 if let Some(provider) = self.config.active_ai_provider().cloned() {
-                    worker.send(WorkerCommand::StopRecording);
-                    worker.send(WorkerCommand::TranscribeAndSynthesize {
-                        endpoint: provider.endpoint.clone(),
-                        kind: provider.kind,
-                        api_key: provider.api_key.clone(),
-                        model: provider.model.clone(),
-                        prompt: self.config.synthesis_prompt.clone(),
-                    });
+                    worker.command_tx().send(WorkerCommand::StopRecording).ok();
+                    let (prompt, _) = self.config.ai_mode_parts(mode);
+                    worker
+                        .command_tx()
+                        .send(WorkerCommand::TranscribeAndSynthesize {
+                            mode,
+                            endpoint: provider.endpoint.clone(),
+                            kind: provider.kind,
+                            api_key: provider.api_key.clone(),
+                            model: provider.model.clone(),
+                            prompt: prompt.to_string(),
+                        })
+                        .ok();
                     self.ai_recording = false;
                     self.ai_busy = true;
                     self.ai_status = Some(AiStatus::Transcribing);
@@ -483,7 +581,28 @@ impl PomodoroApp {
             match self.ensure_ai_worker() {
                 Ok(()) => {
                     if let Some(worker) = &self.ai_worker {
-                        worker.send(WorkerCommand::StartRecording);
+                        // Call mode: also open the loopback device so remote
+                        // participants are captured (requires e.g. BlackHole)
+                        let loopback = match mode {
+                            otamot::config::AiMode::Call => {
+                                self.config.call_input_device_name.clone()
+                            }
+                            otamot::config::AiMode::Thoughts => String::new(),
+                        };
+                        worker
+                            .command_tx()
+                            .send(WorkerCommand::StartRecording {
+                                mode,
+                                loopback_device: loopback,
+                            })
+                            .ok();
+                        worker
+                            .command_tx()
+                            .send(WorkerCommand::SetLiveTranscription {
+                                enabled: self.config.live_transcription_enabled,
+                                model_path: self.config.whisper_model_path.clone(),
+                            })
+                            .ok();
                         self.ai_recording = true;
                         self.ai_status = Some(AiStatus::Recording);
                     }
@@ -499,10 +618,13 @@ impl PomodoroApp {
         match self.ensure_ai_worker() {
             Ok(()) => {
                 if let Some(worker) = &self.ai_worker {
-                    worker.send(WorkerCommand::DownloadModel {
-                        size: self.config.whisper_model_size,
-                        target_dir: model_dir_from_path(&self.config.whisper_model_path),
-                    });
+                    worker
+                        .command_tx()
+                        .send(WorkerCommand::DownloadModel {
+                            size: self.config.whisper_model_size,
+                            target_dir: model_dir_from_path(&self.config.whisper_model_path),
+                        })
+                        .ok();
                     self.ai_model_download_progress = Some(0.0);
                 }
             }
@@ -510,6 +632,88 @@ impl PomodoroApp {
                 self.ai_status = Some(AiStatus::Failed(message));
             }
         }
+    }
+
+    /// Deterministically create + immediately tear down a system tap:
+    /// triggers the macOS TCC prompt from Settings without recording.
+    /// Result surfaces on the AI status line.
+    fn test_system_audio(&mut self) {
+        let endpoint = match self.config.active_ai_provider().cloned() {
+            Some(p) => p.endpoint,
+            None => String::new(),
+        };
+        let _ = endpoint; // tap doesn't need the provider; kept for symmetry
+        let push: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
+        let rate: Arc<Mutex<u32>> = Arc::new(Mutex::new(0));
+        match otamot::system_audio::SystemAudioCapture::start(push, rate) {
+            Ok((capture, sample_rate, method)) => {
+                drop(capture);
+                self.ai_status = Some(AiStatus::Done(format!(
+                    "system audio OK via {} @ {} Hz",
+                    method.label(),
+                    sample_rate
+                )));
+            }
+            Err(e) => {
+                self.ai_status = Some(AiStatus::Failed(format!("{:#}", e)));
+            }
+        }
+    }
+
+    fn fetch_models_for(
+        &mut self,
+        endpoint: String,
+        kind: otamot::config::EndpointKind,
+        api_key: String,
+    ) {
+        match self.ensure_ai_worker() {
+            Ok(()) => {
+                if let Some(worker) = &self.ai_worker {
+                    worker
+                        .command_tx()
+                        .send(WorkerCommand::FetchModels {
+                            endpoint: endpoint.clone(),
+                            kind,
+                            api_key,
+                        })
+                        .ok();
+                    self.ai_fetching_models = Some(endpoint);
+                }
+            }
+            Err(message) => {
+                self.ai_status = Some(AiStatus::Failed(message));
+            }
+        }
+    }
+
+    fn test_endpoint(
+        &mut self,
+        endpoint: String,
+        kind: otamot::config::EndpointKind,
+        api_key: String,
+    ) {
+        match self.ensure_ai_worker() {
+            Ok(()) => {
+                if let Some(worker) = &self.ai_worker {
+                    worker
+                        .command_tx()
+                        .send(WorkerCommand::TestEndpoint {
+                            endpoint,
+                            kind,
+                            api_key,
+                        })
+                        .ok();
+                }
+            }
+            Err(message) => {
+                self.ai_status = Some(AiStatus::Failed(message));
+            }
+        }
+    }
+
+    /// Whether the configured whisper model file exists on disk.
+    fn whisper_model_ready(&self) -> bool {
+        std::path::Path::new(&self.config.whisper_model_path).exists()
     }
 
     /// Drain worker events without blocking. Called every frame.
@@ -523,7 +727,11 @@ impl PomodoroApp {
                 Ok(event) => {
                     repaint = true;
                     match event {
+                        WorkerEvent::LiveTranscript { text } => {
+                            self.ai_live_transcript = Some(text);
+                        }
                         WorkerEvent::RecordingStarted => {
+                            self.ai_live_transcript = None;
                             self.ai_status = Some(AiStatus::Recording);
                         }
                         WorkerEvent::RecordingStopped { .. } => {}
@@ -535,11 +743,41 @@ impl PomodoroApp {
                             self.ai_model_download_progress = None;
                             let _ = self.config.save();
                         }
-                        WorkerEvent::Transcribed { .. } => {
+                        WorkerEvent::ModelsFetched { endpoint, models } => {
+                            self.ai_models_cache.insert(endpoint, models);
+                            self.ai_fetching_models = None;
+                        }
+                        WorkerEvent::EndpointTested {
+                            endpoint,
+                            ok,
+                            detail,
+                        } => {
+                            self.ai_endpoint_status.insert(endpoint.clone(), ok);
+                            if ok {
+                                self.ai_endpoint_status_detail.remove(&endpoint);
+                            } else {
+                                self.ai_endpoint_status_detail.insert(endpoint, detail);
+                            }
+                        }
+                        WorkerEvent::EndpointResolved {
+                            requested,
+                            resolved,
+                        } => {
+                            // Self-heal: a bare host auto-resolved to /v1 —
+                            // persist it so synthesis skips the 404 round-trip
+                            for provider in &mut self.config.ai_providers {
+                                if provider.endpoint.trim_end_matches('/') == requested {
+                                    provider.endpoint = resolved.clone();
+                                }
+                            }
+                            let _ = self.config.save();
+                        }
+                        WorkerEvent::Transcribed { text } => {
+                            self.ai_last_transcript = Some(text);
                             self.ai_status = Some(AiStatus::Synthesizing);
                         }
-                        WorkerEvent::Synthesized { markdown } => {
-                            self.deliver_synthesis(&markdown);
+                        WorkerEvent::Synthesized { mode, markdown } => {
+                            self.deliver_synthesis(mode, &markdown);
                             self.ai_busy = false;
                             self.ai_status = Some(AiStatus::Done(markdown));
                         }
@@ -564,17 +802,72 @@ impl PomodoroApp {
         }
     }
 
-    /// Delivery target for synthesized Markdown. One function so a future
-    /// change (separate file, call notes, kanban) touches only this.
-    fn deliver_synthesis(&mut self, markdown: &str) {
+    /// Delivery target for synthesized Markdown: writes one timestamped
+    /// .md file per recording into the mode's configured directory, and
+    /// mirrors the block into the notes draft so it's visible in-app.
+    /// Output = summary from the LLM plus (optionally) the timestamped
+    /// transcript beneath it.
+    fn deliver_synthesis(&mut self, mode: otamot::config::AiMode, markdown: &str) {
         let timestamp = Local::now().format("%Y-%m-%d %H:%M");
-        let block = format!(
-            "\n## Voice Notes — {}\n\n{}\n\n",
+        let mut block = format!(
+            "\n## Voice Notes — {} ({})\n\n{}\n",
             timestamp,
+            mode.label(),
             markdown.trim()
         );
-        self.notes_content.push_str(&block);
-        let _ = notes::save_draft(&self.config.notes_directory, &self.notes_content);
+        if self.config.include_transcript_in_notes {
+            if let Some(transcript) = &self.ai_last_transcript {
+                if !transcript.trim().is_empty() {
+                    block.push_str(&format!("\n### Transcript\n\n{}\n", transcript.trim()));
+                }
+            }
+        }
+        block.push('\n');
+        self.write_mode_file(mode, &block);
+        // Transcript has been consumed into the note
+        self.ai_last_transcript = None;
+    }
+
+    /// Write a voice-notes block as a timestamped file in the mode's
+    /// directory, creating it (and parents) on first write. Mirrors into
+    /// the notes draft so the result is visible in-app.
+    fn write_mode_file(&mut self, mode: otamot::config::AiMode, block: &str) {
+        let dir = match mode {
+            otamot::config::AiMode::Thoughts => self.config.voice_notes_dir.clone(),
+            otamot::config::AiMode::Call => self.config.call_records_dir.clone(),
+        };
+        let dir_path = std::path::PathBuf::from(&dir);
+        if let Err(e) = std::fs::create_dir_all(&dir_path) {
+            eprintln!("Failed to create {} directory: {}", mode.label(), e);
+            self.ai_status = Some(AiStatus::Failed(format!(
+                "could not create {} directory",
+                mode.label()
+            )));
+            return;
+        }
+
+        let filename = format!(
+            "{}-{}.md",
+            Local::now().format("%m-%d-%Y-%H-%M-%S"),
+            mode.label()
+        );
+        let path = dir_path.join(&filename);
+
+        use std::io::Write;
+        match std::fs::File::create(&path).and_then(|mut f| f.write_all(block.as_bytes())) {
+            Ok(()) => {
+                // Mirror the block into the notes draft so it's visible in-app
+                self.notes_content.push_str(block);
+                let _ = notes::save_draft(&self.config.notes_directory, &self.notes_content);
+            }
+            Err(e) => {
+                eprintln!("Failed to write voice notes to {}: {}", path.display(), e);
+                self.ai_status = Some(AiStatus::Failed(format!(
+                    "could not write to {}",
+                    path.display()
+                )));
+            }
+        }
     }
 
     /// Status line text for the current AI pipeline state.
@@ -583,8 +876,12 @@ impl PomodoroApp {
         let text_color = egui::Color32::from_rgb(theme.text.r, theme.text.g, theme.text.b);
         let dim = egui::Color32::from_rgb(theme.text_dim.r, theme.text_dim.g, theme.text_dim.b);
         let error = egui::Color32::from_rgb(0xe7, 0x4c, 0x3c);
+        let recording_label = match self.ai_active_mode {
+            otamot::config::AiMode::Thoughts => "● Recording thoughts…",
+            otamot::config::AiMode::Call => "● Recording call…",
+        };
         match &self.ai_status {
-            Some(AiStatus::Recording) => Some(("● Recording thoughts…".to_string(), error)),
+            Some(AiStatus::Recording) => Some((recording_label.to_string(), error)),
             Some(AiStatus::Transcribing) => Some(("Transcribing…".to_string(), dim)),
             Some(AiStatus::Synthesizing) => Some(("Synthesizing notes…".to_string(), dim)),
             Some(AiStatus::Done(_)) => Some(("Voice notes added ✓".to_string(), text_color)),
@@ -1014,6 +1311,16 @@ impl eframe::App for PomodoroApp {
         // Drain AI worker events (non-blocking)
         if self.config.ai_notes_enabled {
             self.poll_ai_events(ctx);
+            self.poll_system_audio_test();
+            self.poll_voice_hotkey();
+            // In-app shortcut (works everywhere; the global one is macOS)
+            if self.config.ai_notes_enabled
+                && ctx.input(|i| {
+                    i.key_pressed(egui::Key::R) && i.modifiers.command && i.modifiers.shift
+                })
+            {
+                self.toggle_ai_recording();
+            }
         }
 
         // Auto-save notes draft if they've changed
@@ -1161,15 +1468,15 @@ impl eframe::App for PomodoroApp {
             && self.notes_view == NotesView::Edit
             && self.dropdown_visible
             && !self.dropdown_items.is_empty()
+            && ctx.input(|i| i.key_pressed(egui::Key::Enter))
         {
-            if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
-                let item = self.dropdown_items[self.dropdown_selected].clone();
-                self.apply_dropdown_selection(item);
-                ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
-            }
+            let item = self.dropdown_items[self.dropdown_selected].clone();
+            self.apply_dropdown_selection(item);
+            ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
         }
         if ctx.input(|i| i.key_pressed(egui::Key::Comma) && i.modifiers.command) {
             self.show_settings = true;
+            self.refresh_input_device_list();
         }
 
         if ctx.input(|i| i.key_pressed(egui::Key::Period) && i.modifiers.command) {
@@ -1593,6 +1900,29 @@ impl PomodoroApp {
                     ui.label(egui::RichText::new(status_text).size(13.0).color(color));
                 });
             }
+            // Live partial transcript while recording
+            if self.ai_recording {
+                if let Some(live) = &self.ai_live_transcript {
+                    ui.horizontal(|ui| {
+                        ui.add_space(10.0);
+                        ui.label(egui::RichText::new("live:").size(11.0).color(text_dim));
+                    });
+                    egui::ScrollArea::vertical()
+                        .id_salt("ai_live_transcript")
+                        .max_height(90.0)
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.add_space(10.0);
+                                ui.label(
+                                    egui::RichText::new(live.as_str())
+                                        .size(12.0)
+                                        .color(text_dim)
+                                        .italics(),
+                                );
+                            });
+                        });
+                }
+            }
             if let Some(progress) = self.ai_model_download_progress {
                 ui.horizontal(|ui| {
                     ui.add_space(10.0);
@@ -1816,6 +2146,7 @@ impl PomodoroApp {
             .clicked()
             {
                 self.show_settings = true;
+                self.refresh_input_device_list();
             }
             if ui_components::rounded_button(
                 ui,
@@ -2300,6 +2631,13 @@ impl PomodoroApp {
                             });
                             ui.horizontal(|ui| {
                                 ui.add_space(40.0);
+                                let model_ready = self.whisper_model_ready();
+                                let (checkbox, color) = if model_ready {
+                                    ("☑", egui::Color32::from_rgb(0x27, 0xae, 0x60))
+                                } else {
+                                    ("☐", egui::Color32::from_rgb(0xe7, 0x4c, 0x3c))
+                                };
+                                ui.label(egui::RichText::new(checkbox).size(16.0).color(color));
                                 ui.label(
                                     egui::RichText::new(format!(
                                         "Model file: {}",
@@ -2332,6 +2670,20 @@ impl PomodoroApp {
                             });
                             let mut provider_changed = false;
                             let mut remove_index: Option<usize> = None;
+                            let mut test_request: Option<(
+                                String,
+                                otamot::config::EndpointKind,
+                                String,
+                            )> = None;
+                            let mut fetch_request: Option<(
+                                String,
+                                otamot::config::EndpointKind,
+                                String,
+                            )> = None;
+                            // Snapshot endpoint status/fetching state before the loop
+                            // to avoid borrowing self inside the iter_mut scope
+                            let endpoint_status = self.ai_endpoint_status.clone();
+                            let fetching_now = self.ai_fetching_models.clone();
                             for (idx, provider) in self.config.ai_providers.iter_mut().enumerate() {
                                 ui.add_space(8.0);
                                 ui.horizontal(|ui| {
@@ -2390,19 +2742,131 @@ impl PomodoroApp {
                                         provider_changed = true;
                                     }
                                     let old_model = provider.model.clone();
-                                    ui.add(
-                                        egui::TextEdit::singleline(&mut provider.model)
-                                            .desired_width(110.0)
-                                            .hint_text("model"),
-                                    );
-                                    if provider.model != old_model {
-                                        provider_changed = true;
+                                    // Model field with dropdown of fetched models when available
+                                    if let Some(models) =
+                                        self.ai_models_cache.get(&provider.endpoint)
+                                    {
+                                        if !models.is_empty() {
+                                            let mut selected = provider.model.clone();
+                                            egui::ComboBox::from_id_salt(format!(
+                                                "model_{}_{}",
+                                                idx, provider.endpoint
+                                            ))
+                                            .selected_text(if selected.is_empty() {
+                                                "pick model".to_string()
+                                            } else {
+                                                selected.clone()
+                                            })
+                                            .show_ui(
+                                                ui,
+                                                |ui| {
+                                                    for m in models {
+                                                        ui.selectable_value(
+                                                            &mut selected,
+                                                            m.clone(),
+                                                            m,
+                                                        );
+                                                    }
+                                                },
+                                            );
+                                            if selected != provider.model {
+                                                provider.model = selected;
+                                                provider_changed = true;
+                                            }
+                                        } else {
+                                            ui.add(
+                                                egui::TextEdit::singleline(&mut provider.model)
+                                                    .desired_width(110.0)
+                                                    .hint_text("model"),
+                                            );
+                                            if provider.model != old_model {
+                                                provider_changed = true;
+                                            }
+                                        }
+                                    } else {
+                                        ui.add(
+                                            egui::TextEdit::singleline(&mut provider.model)
+                                                .desired_width(110.0)
+                                                .hint_text("model"),
+                                        );
+                                        if provider.model != old_model {
+                                            provider_changed = true;
+                                        }
+                                    }
+                                    // Test endpoint button with green check feedback
+                                    let tested = endpoint_status.get(&provider.endpoint);
+                                    let test_label = match tested {
+                                        Some(true) => "✓",
+                                        Some(false) => "✗",
+                                        None => "Test",
+                                    };
+                                    let test_color = match tested {
+                                        Some(true) => egui::Color32::from_rgb(0x27, 0xae, 0x60),
+                                        Some(false) => egui::Color32::from_rgb(0xe7, 0x4c, 0x3c),
+                                        None => button_color,
+                                    };
+                                    if ui_components::small_rounded_button(
+                                        ui,
+                                        test_label,
+                                        button_text_color,
+                                        test_color,
+                                    )
+                                    .clicked()
+                                    {
+                                        test_request = Some((
+                                            provider.endpoint.clone(),
+                                            provider.kind,
+                                            provider.api_key.clone(),
+                                        ));
+                                    }
+                                    // Fetch model list button
+                                    let fetching =
+                                        fetching_now.as_deref() == Some(provider.endpoint.as_str());
+                                    let fetch_label = if fetching { "…" } else { "↻" };
+                                    if ui_components::small_rounded_button(
+                                        ui,
+                                        fetch_label,
+                                        button_text_color,
+                                        button_color,
+                                    )
+                                    .clicked()
+                                        && !fetching
+                                    {
+                                        fetch_request = Some((
+                                            provider.endpoint.clone(),
+                                            provider.kind,
+                                            provider.api_key.clone(),
+                                        ));
                                     }
                                     if ui.small_button("✕").clicked() {
                                         remove_index = Some(idx);
                                         provider_changed = true;
                                     }
                                 });
+                                // Inline failure detail under the row
+                                let tested_now = endpoint_status.get(&provider.endpoint).copied();
+                                if tested_now == Some(false) {
+                                    if let Some(detail) =
+                                        self.ai_endpoint_status_detail.get(&provider.endpoint)
+                                    {
+                                        ui.horizontal(|ui| {
+                                            ui.add_space(100.0);
+                                            ui.label(
+                                                egui::RichText::new(detail).size(11.0).color(
+                                                    egui::Color32::from_rgb(0xe7, 0x4c, 0x3c),
+                                                ),
+                                            );
+                                        });
+                                    }
+                                }
+                            }
+                            if let Some((endpoint, kind, api_key)) = test_request {
+                                self.ai_endpoint_status.remove(&endpoint);
+                                self.ai_endpoint_status_detail.remove(&endpoint);
+                                self.test_endpoint(endpoint, kind, api_key);
+                            }
+                            if let Some((endpoint, kind, api_key)) = fetch_request {
+                                self.fetch_models_for(endpoint, kind, api_key);
                             }
                             if let Some(idx) = remove_index {
                                 if self.config.ai_providers.len() > 1 {
@@ -2466,7 +2930,149 @@ impl PomodoroApp {
                             });
                             ui.add_space(15.0);
 
-                            // Recording cap
+                            // Call recorder prompt editor
+                            ui.horizontal(|ui| {
+                                ui.add_space(40.0);
+                                ui.label(
+                                    egui::RichText::new("Call prompt")
+                                        .size(16.0)
+                                        .color(text_dim_color),
+                                );
+                            });
+                            ui.horizontal(|ui| {
+                                ui.add_space(40.0);
+                                let old_call_prompt = self.config.call_prompt.clone();
+                                ui.add(
+                                    egui::TextEdit::multiline(&mut self.config.call_prompt)
+                                        .desired_width(430.0)
+                                        .desired_rows(4),
+                                );
+                                if self.config.call_prompt != old_call_prompt {
+                                    let _ = self.config.save();
+                                }
+                            });
+                            ui.add_space(15.0);
+
+                            // Input device pickers (per mode). Call mode
+                            // should point at a loopback device (e.g.
+                            // BlackHole) to capture remote participants.
+                            ui.horizontal(|ui| {
+                                ui.add_space(40.0);
+                                ui.label(
+                                    egui::RichText::new("Thoughts input device:")
+                                        .size(16.0)
+                                        .color(text_dim_color),
+                                );
+                                let current = if self.config.input_device_name.is_empty() {
+                                    "(system default)".to_string()
+                                } else {
+                                    self.config.input_device_name.clone()
+                                };
+                                egui::ComboBox::from_id_salt("thoughts_input_device")
+                                    .selected_text(&current)
+                                    .show_ui(ui, |ui| {
+                                        ui.selectable_value(
+                                            &mut self.config.input_device_name,
+                                            String::new(),
+                                            "(system default)",
+                                        );
+                                        for name in &self.ai_input_devices {
+                                            if name != &"(system default)".to_string() {
+                                                ui.selectable_value(
+                                                    &mut self.config.input_device_name,
+                                                    name.clone(),
+                                                    name,
+                                                );
+                                            }
+                                        }
+                                    });
+                            });
+                            ui.horizontal(|ui| {
+                                ui.add_space(40.0);
+                                ui.label(
+                                    egui::RichText::new("Call input device (loopback):")
+                                        .size(16.0)
+                                        .color(text_dim_color),
+                                );
+                                let current = if self.config.call_input_device_name.is_empty() {
+                                    "(none — mic only)".to_string()
+                                } else {
+                                    self.config.call_input_device_name.clone()
+                                };
+                                egui::ComboBox::from_id_salt("call_input_device")
+                                    .selected_text(&current)
+                                    .show_ui(ui, |ui| {
+                                        ui.selectable_value(
+                                            &mut self.config.call_input_device_name,
+                                            String::new(),
+                                            "(none — mic only)",
+                                        );
+                                        for name in &self.ai_input_devices {
+                                            if name != &"(none — mic only)".to_string() {
+                                                ui.selectable_value(
+                                                    &mut self.config.call_input_device_name,
+                                                    name.clone(),
+                                                    name,
+                                                );
+                                            }
+                                        }
+                                    });
+                            });
+                            ui.add_space(15.0);
+
+                            // Output directories (per mode)
+                            ui.horizontal(|ui| {
+                                ui.add_space(40.0);
+                                ui.label(
+                                    egui::RichText::new("Thoughts output dir:")
+                                        .size(16.0)
+                                        .color(text_dim_color),
+                                );
+                            });
+                            ui.horizontal(|ui| {
+                                ui.add_space(40.0);
+                                let old_dir = self.config.voice_notes_dir.clone();
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.config.voice_notes_dir)
+                                        .desired_width(350.0),
+                                );
+                                if self.config.voice_notes_dir != old_dir {
+                                    let _ = self.config.save();
+                                }
+                            });
+                            ui.horizontal(|ui| {
+                                ui.add_space(40.0);
+                                ui.label(
+                                    egui::RichText::new("Call records dir:")
+                                        .size(16.0)
+                                        .color(text_dim_color),
+                                );
+                            });
+                            ui.horizontal(|ui| {
+                                ui.add_space(40.0);
+                                let old_dir = self.config.call_records_dir.clone();
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.config.call_records_dir)
+                                        .desired_width(350.0),
+                                );
+                                if self.config.call_records_dir != old_dir {
+                                    let _ = self.config.save();
+                                }
+                            });
+                            ui.add_space(15.0);
+
+                            // Test system audio (triggers TCC prompt on
+                            // first use without starting a recording)
+                            if ui_components::small_rounded_button(
+                                ui,
+                                "Test system audio",
+                                button_text_color,
+                                button_color,
+                            )
+                            .clicked()
+                            {
+                                self.test_system_audio();
+                            }
                             ui.horizontal(|ui| {
                                 ui.add_space(40.0);
                                 ui.label(
@@ -2486,6 +3092,46 @@ impl PomodoroApp {
                                     .show_value(false),
                                 );
                                 if self.config.max_recording_minutes != old_cap {
+                                    let _ = self.config.save();
+                                }
+                            });
+                            ui.add_space(15.0);
+
+                            // Live transcription + transcript inclusion toggles
+                            ui.horizontal(|ui| {
+                                ui.add_space(40.0);
+                                let live_label = if self.config.live_transcription_enabled {
+                                    "Live transcription: ON"
+                                } else {
+                                    "Live transcription: OFF"
+                                };
+                                if ui_components::small_rounded_button(
+                                    ui,
+                                    live_label,
+                                    button_text_color,
+                                    button_color,
+                                )
+                                .clicked()
+                                {
+                                    self.config.live_transcription_enabled =
+                                        !self.config.live_transcription_enabled;
+                                    let _ = self.config.save();
+                                }
+                                let inc_label = if self.config.include_transcript_in_notes {
+                                    "Include transcript: ON"
+                                } else {
+                                    "Include transcript: OFF"
+                                };
+                                if ui_components::small_rounded_button(
+                                    ui,
+                                    inc_label,
+                                    button_text_color,
+                                    button_color,
+                                )
+                                .clicked()
+                                {
+                                    self.config.include_transcript_in_notes =
+                                        !self.config.include_transcript_in_notes;
                                     let _ = self.config.save();
                                 }
                             });

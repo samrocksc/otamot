@@ -196,6 +196,77 @@ pub struct Config {
     pub synthesis_prompt: String,
     #[serde(default = "default_max_recording_minutes")]
     pub max_recording_minutes: u32,
+    /// Stream partial transcripts to the UI while recording
+    #[serde(default = "default_true")]
+    pub live_transcription_enabled: bool,
+    /// Append the raw transcript under the synthesized summary
+    #[serde(default = "default_true")]
+    pub include_transcript_in_notes: bool,
+    /// Directory for thought-recorder outputs (one .md per recording)
+    #[serde(default = "default_voice_notes_dir")]
+    pub voice_notes_dir: String,
+    /// Directory for call-recorder outputs (one .md per call)
+    #[serde(default = "default_call_records_dir")]
+    pub call_records_dir: String,
+    /// Global hotkey to toggle voice recording (macOS: Cmd+Shift+<key>)
+    #[serde(default = "default_voice_hotkey")]
+    pub voice_hotkey: String,
+    /// Synthesis prompt for the call recorder (different job, different ask)
+    #[serde(default = "default_call_prompt")]
+    pub call_prompt: String,
+    /// Preferred input device for thought recordings (empty = system default)
+    #[serde(default)]
+    pub input_device_name: String,
+    /// Preferred input device for call recordings — set this to a loopback
+    /// device (e.g. BlackHole) to capture remote call audio; empty = default
+    #[serde(default)]
+    pub call_input_device_name: String,
+}
+
+fn default_voice_notes_dir() -> String {
+    format!(
+        "{}/.config/otamot/voice_notes",
+        std::env::var("HOME").unwrap_or_else(|_| ".".to_string())
+    )
+}
+
+fn default_call_records_dir() -> String {
+    format!(
+        "{}/.config/otamot/call_records",
+        std::env::var("HOME").unwrap_or_else(|_| ".".to_string())
+    )
+}
+
+fn default_voice_hotkey() -> String {
+    "Cmd+Shift+R".to_string()
+}
+
+fn default_call_prompt() -> String {
+    "You are a meeting-notes assistant. Transform the raw transcript of a \
+call into polished Markdown meeting notes. Remove filler words and \
+repetition. Organize under these headings: '## Summary' for a two-sentence \
+overview, '## Decisions' for anything agreed, '## Action Items' as a \
+checkbox list with owners when identifiable, and '## Open Questions' for \
+unresolved topics. Be concise and factual. Reply with the Markdown snippet \
+only, no preamble."
+        .to_string()
+}
+
+/// Which recorder a synthesis belongs to — decides output dir and prompt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum AiMode {
+    #[default]
+    Thoughts,
+    Call,
+}
+
+impl AiMode {
+    pub fn label(&self) -> &'static str {
+        match self {
+            AiMode::Thoughts => "thoughts",
+            AiMode::Call => "call",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -389,6 +460,14 @@ impl Default for Config {
             whisper_model_size: WhisperSize::default(),
             synthesis_prompt: default_synthesis_prompt(),
             max_recording_minutes: default_max_recording_minutes(),
+            live_transcription_enabled: true,
+            include_transcript_in_notes: true,
+            voice_notes_dir: default_voice_notes_dir(),
+            call_records_dir: default_call_records_dir(),
+            voice_hotkey: default_voice_hotkey(),
+            call_prompt: default_call_prompt(),
+            input_device_name: String::new(),
+            call_input_device_name: String::new(),
         }
     }
 }
@@ -402,6 +481,17 @@ impl Config {
             .iter()
             .find(|p| &p.name == active)
             .or_else(|| self.ai_providers.first())
+    }
+
+    /// Which synthesis prompt and output directory a mode uses.
+    pub fn ai_mode_parts(&self, mode: AiMode) -> (&str, &str) {
+        match mode {
+            AiMode::Thoughts => (
+                self.synthesis_prompt.as_str(),
+                self.voice_notes_dir.as_str(),
+            ),
+            AiMode::Call => (self.call_prompt.as_str(), self.call_records_dir.as_str()),
+        }
     }
 }
 
@@ -540,5 +630,63 @@ mod tests {
         assert_eq!(WhisperSize::Tiny.file_name(), "ggml-tiny.bin");
         assert_eq!(WhisperSize::Medium.file_name(), "ggml-medium.bin");
         assert_eq!(WhisperSize::all().len(), 4);
+    }
+
+    #[test]
+    fn test_voice_notes_output_defaults() {
+        let config = Config::default();
+        assert!(config.voice_notes_dir.ends_with("voice_notes"));
+        assert!(config.call_records_dir.ends_with("call_records"));
+        assert_eq!(config.voice_hotkey, "Cmd+Shift+R");
+        assert!(config.live_transcription_enabled);
+        assert!(config.include_transcript_in_notes);
+        assert!(!config.synthesis_prompt.is_empty());
+        assert!(!config.call_prompt.is_empty());
+        assert_ne!(config.synthesis_prompt, config.call_prompt);
+    }
+
+    #[test]
+    fn test_voice_fields_backward_compat() {
+        let old_json = r#"{"work_duration": 25}"#;
+        let config: Config = serde_json::from_str(old_json).unwrap();
+        assert_eq!(config.voice_hotkey, "Cmd+Shift+R");
+        assert!(!config.voice_notes_dir.is_empty());
+        assert!(!config.call_records_dir.is_empty());
+    }
+
+    #[test]
+    fn test_old_output_file_field_ignored() {
+        // Legacy settings.json with voice_notes_output_file still loads;
+        // the new dir fields take their defaults.
+        let old_json = r#"{"voice_notes_output_file": "/tmp/x.md"}"#;
+        let config: Config = serde_json::from_str(old_json).unwrap();
+        assert!(config.voice_notes_dir.ends_with("voice_notes"));
+    }
+
+    #[test]
+    fn test_ai_mode_default_and_labels() {
+        assert_eq!(AiMode::default(), AiMode::Thoughts);
+        assert_eq!(AiMode::Thoughts.label(), "thoughts");
+        assert_eq!(AiMode::Call.label(), "call");
+    }
+
+    #[test]
+    fn test_ai_mode_parts() {
+        let config = Config::default();
+        let (thoughts_prompt, thoughts_dir) = config.ai_mode_parts(AiMode::Thoughts);
+        let (call_prompt, call_dir) = config.ai_mode_parts(AiMode::Call);
+        assert_eq!(thoughts_prompt, config.synthesis_prompt);
+        assert_eq!(call_prompt, config.call_prompt);
+        assert_ne!(thoughts_prompt, call_prompt);
+        assert_eq!(thoughts_dir, config.voice_notes_dir);
+        assert_eq!(call_dir, config.call_records_dir);
+    }
+
+    #[test]
+    fn test_device_selection_defaults_empty() {
+        let config = Config::default();
+        // Empty means "system default device"
+        assert!(config.input_device_name.is_empty());
+        assert!(config.call_input_device_name.is_empty());
     }
 }

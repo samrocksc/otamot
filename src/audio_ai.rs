@@ -26,11 +26,17 @@ const BUFFER_HEADROOM_MINUTES: u32 = 2;
 /// Commands the UI thread can send to the worker.
 /// New capabilities = new variant + one match arm.
 pub enum WorkerCommand {
-    StartRecording,
+    StartRecording {
+        mode: crate::config::AiMode,
+        /// Loopback device name for call mode (captures remote audio);
+        /// empty = skip loopback capture
+        loopback_device: String,
+    },
     StopRecording,
     /// Run the full pipeline: transcribe the buffer, then synthesize
     /// Markdown via the active provider profile.
     TranscribeAndSynthesize {
+        mode: crate::config::AiMode,
         endpoint: String,
         kind: crate::config::EndpointKind,
         api_key: String,
@@ -41,18 +47,67 @@ pub enum WorkerCommand {
         size: WhisperSize,
         target_dir: String,
     },
+    /// Query the provider's /models endpoint and report the list.
+    FetchModels {
+        endpoint: String,
+        kind: crate::config::EndpointKind,
+        api_key: String,
+    },
+    /// Lightweight endpoint health check (GET /models).
+    TestEndpoint {
+        endpoint: String,
+        kind: crate::config::EndpointKind,
+        api_key: String,
+    },
+    /// Enable/disable live partial transcription while recording.
+    SetLiveTranscription {
+        enabled: bool,
+        model_path: String,
+    },
     Shutdown,
 }
 
 /// Events the worker reports back to the UI thread.
 pub enum WorkerEvent {
     RecordingStarted,
-    RecordingStopped { seconds: f32 },
-    ModelDownloadProgress { percent: f32 },
-    ModelDownloadDone { path: String },
-    Transcribed { text: String },
-    Synthesized { markdown: String },
-    Error { message: String },
+    RecordingStopped {
+        seconds: f32,
+    },
+    /// Partial transcript from the rolling tail window during recording
+    LiveTranscript {
+        text: String,
+    },
+    ModelDownloadProgress {
+        percent: f32,
+    },
+    ModelDownloadDone {
+        path: String,
+    },
+    ModelsFetched {
+        endpoint: String,
+        models: Vec<String>,
+    },
+    EndpointTested {
+        endpoint: String,
+        ok: bool,
+        detail: String,
+    },
+    /// The endpoint that actually worked differs from what was configured
+    /// (e.g. bare host auto-resolved to host/v1). UI should persist it.
+    EndpointResolved {
+        requested: String,
+        resolved: String,
+    },
+    Transcribed {
+        text: String,
+    },
+    Synthesized {
+        mode: crate::config::AiMode,
+        markdown: String,
+    },
+    Error {
+        message: String,
+    },
 }
 
 /// Accumulated audio in capture units (f32 samples at the device rate).
@@ -136,6 +191,81 @@ fn segments_to_text(state: &whisper_rs::WhisperState) -> String {
     text.trim().to_string()
 }
 
+/// Silence gap (in centiseconds, whisper's unit) that starts a new turn.
+const TURN_GAP_CENTISECONDS: i64 = 90;
+
+/// Format whisper segments into timestamped, pause-separated turns.
+///
+/// whisper.cpp has no speaker embeddings, so true diarization is out of
+/// scope here; instead, silence gaps longer than `TURN_GAP_CENTISECONDS`
+/// break the text into labeled turns with `[mm:ss]` start timestamps.
+/// Turns are numbered so readers can follow the conversational flow.
+pub fn format_timestamped_turns(state: &whisper_rs::WhisperState) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    let mut turn: Vec<String> = Vec::new();
+    let mut turn_start_cs: Option<i64> = None;
+    let mut prev_end_cs: Option<i64> = None;
+    let mut turn_number = 0usize;
+
+    for segment in state.as_iter() {
+        let Ok(text) = segment.to_str_lossy() else {
+            continue;
+        };
+        let text = text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        let start = segment.start_timestamp();
+        let end = segment.end_timestamp();
+
+        let new_turn = is_new_turn(prev_end_cs, start);
+        if new_turn {
+            if !turn.is_empty() {
+                if let Some(ts) = turn_start_cs {
+                    turn_number += 1;
+                    lines.push(format!(
+                        "[{}] turn {}: {}",
+                        fmt_ts(ts),
+                        turn_number,
+                        turn.join(" ")
+                    ));
+                }
+                turn.clear();
+            }
+            turn_start_cs = Some(start);
+        }
+        turn.push(text.to_string());
+        prev_end_cs = Some(end);
+    }
+    if !turn.is_empty() {
+        if let Some(ts) = turn_start_cs {
+            turn_number += 1;
+            lines.push(format!(
+                "[{}] turn {}: {}",
+                fmt_ts(ts),
+                turn_number,
+                turn.join(" ")
+            ));
+        }
+    }
+    lines.join("\n")
+}
+
+/// Format centiseconds as `[mm:ss]`.
+fn fmt_ts(centiseconds: i64) -> String {
+    let total_seconds = centiseconds / 100;
+    format!("[{:02}:{:02}]", total_seconds / 60, total_seconds % 60)
+}
+
+/// Pure helper mirroring the turn-break rule in `format_timestamped_turns`
+/// so the threshold logic is testable without a loaded whisper model.
+fn is_new_turn(prev_end_cs: Option<i64>, start_cs: i64) -> bool {
+    match prev_end_cs {
+        Some(prev) => start_cs.saturating_sub(prev) > TURN_GAP_CENTISECONDS,
+        None => true,
+    }
+}
+
 /// Lazily-loaded, cached Whisper context — the model is never reloaded
 /// between transcriptions unless the path changes.
 struct WhisperEngine {
@@ -174,6 +304,17 @@ impl WhisperEngine {
     /// Transcribe 16 kHz mono f32 audio. Blocking, CPU heavy —
     /// worker thread only.
     fn transcribe(&mut self, audio: &[f32], model_path: &str) -> Result<String> {
+        let (text, _) = self.transcribe_with_turns(audio, model_path)?;
+        Ok(text)
+    }
+
+    /// Transcribe and return both the plain text (for synthesis) and the
+    /// timestamped turn-formatted transcript (for display/notes).
+    fn transcribe_with_turns(
+        &mut self,
+        audio: &[f32],
+        model_path: &str,
+    ) -> Result<(String, String)> {
         let ctx = self.ensure_loaded(model_path)?;
         let mut state = ctx
             .create_state()
@@ -191,7 +332,9 @@ impl WhisperEngine {
             .full(params, audio)
             .map_err(|e| anyhow!("whisper transcription failed: {}", e))?;
 
-        Ok(segments_to_text(&state))
+        let text = segments_to_text(&state);
+        let turns = format_timestamped_turns(&state);
+        Ok((text, turns))
     }
 }
 
@@ -261,10 +404,10 @@ impl AudioAiWorker {
 
         // Fail fast: probe the default input device before spawning
         let host = cpal::default_host();
-        let device = host
+        let default_device = host
             .default_input_device()
             .ok_or_else(|| anyhow!("no microphone input device found"))?;
-        let supported = device
+        let supported = default_device
             .default_input_config()
             .context("querying microphone config")?;
 
@@ -285,15 +428,58 @@ impl AudioAiWorker {
         })
     }
 
-    pub fn send(&self, command: WorkerCommand) {
-        // Ignore send errors: worker may have shut down already
-        let _ = self.command_tx.send(command);
+    pub fn command_tx(&self) -> &Sender<WorkerCommand> {
+        &self.command_tx
     }
 
     /// Take ownership of the event receiver. Called once from the UI thread.
     pub fn take_event_receiver(&self) -> Option<std::sync::mpsc::Receiver<WorkerEvent>> {
         self.event_rx.lock().ok().and_then(|mut guard| guard.take())
     }
+}
+
+/// Names of all available input devices (for the settings dropdowns).
+pub fn list_input_devices() -> Vec<String> {
+    let host = cpal::default_host();
+    match host.input_devices() {
+        Ok(devices) => devices.filter_map(|d| d.name().ok()).collect::<Vec<_>>(),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Pick an input device by name; falls back to the system default when the
+/// name is empty or not found. Reports which name was actually used.
+fn select_input_device(
+    host: &cpal::Host,
+    preferred_name: &str,
+) -> Result<(cpal::Device, cpal::SupportedStreamConfig, String)> {
+    let default = host
+        .default_input_device()
+        .ok_or_else(|| anyhow!("no microphone input device found"))?;
+    if preferred_name.trim().is_empty() {
+        let config = default
+            .default_input_config()
+            .context("querying default microphone config")?;
+        let name = default.name().unwrap_or_else(|_| "default".to_string());
+        return Ok((default, config, name));
+    }
+    let wanted = preferred_name.trim();
+    for device in host.input_devices().context("listing input devices")? {
+        if let Ok(name) = device.name() {
+            if name == wanted {
+                let config = device
+                    .default_input_config()
+                    .with_context(|| format!("querying config for device {}", name))?;
+                return Ok((device, config, name));
+            }
+        }
+    }
+    // Preferred device missing — fall back to default rather than failing
+    let config = default
+        .default_input_config()
+        .context("querying default microphone config")?;
+    let name = default.name().unwrap_or_else(|_| "default".to_string());
+    Ok((default, config, name))
 }
 
 fn worker_loop(
@@ -303,7 +489,8 @@ fn worker_loop(
     model_path: String,
     input_config: cpal::SupportedStreamConfig,
 ) {
-    let device = cpal::default_host()
+    let host = cpal::default_host();
+    let device = host
         .default_input_device()
         .expect("device checked at spawn");
 
@@ -312,14 +499,75 @@ fn worker_loop(
         input_config.sample_rate().0,
         max_recording_minutes,
     )));
-    // The stream itself stays on this thread (not Send on all platforms);
-    // only the sample buffer is shared with the capture callback.
-    let mut active_stream: Option<cpal::Stream> = None;
+    // Streams stay on this thread (not Send on all platforms); only the
+    // sample buffer is shared with capture callbacks. All streams (mic +
+    // optional loopback) live in one vec; clearing it stops all capture.
+    let mut active_streams: Vec<cpal::Stream> = Vec::new();
+    // Native system-audio capture (macOS tap / Linux monitor) for call mode.
+    // Held alive until recording stops; dropping it tears down the tap.
+    #[allow(unused_assignments)]
+    let mut system_capture: Option<crate::system_audio::SystemAudioCapture> = None;
+    // The f32 tail of the capture buffer that system audio pushes into —
+    // system capture writes raw f32 at its own rate; worker converts at stop.
+    let buffer_push_f32: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
 
-    for command in cmd_rx {
+    // Live transcription state
+    let mut live_transcription = false;
+    let mut last_live_end_samples: usize = 0;
+    const LIVE_WINDOW_SECONDS: f32 = 12.0;
+    const LIVE_INTERVAL_SECONDS: f32 = 4.0;
+
+    loop {
+        // While recording with live mode on, poll for commands but wake up
+        // periodically to transcribe the newest audio tail.
+        let timeout = if live_transcription && !active_streams.is_empty() {
+            Duration::from_millis(500)
+        } else {
+            Duration::from_secs(5)
+        };
+        let command = match cmd_rx.recv_timeout(timeout) {
+            Ok(cmd) => cmd,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                // No command — run a live transcription pass if eligible
+                if live_transcription && !active_streams.is_empty() {
+                    let pass = {
+                        let buf = buffer.lock().unwrap();
+                        buf.samples.len().saturating_sub(last_live_end_samples)
+                            >= (LIVE_INTERVAL_SECONDS * buf.sample_rate as f32) as usize
+                    };
+                    if pass {
+                        let audio_16k = {
+                            let buf = buffer.lock().unwrap();
+                            let tail_len = (LIVE_WINDOW_SECONDS * buf.sample_rate as f32) as usize;
+                            let start = buf.samples.len().saturating_sub(tail_len);
+                            convert_to_whisper_format(&buf.samples[start..], 1, buf.sample_rate)
+                        };
+                        let model_path = engine.model_path.clone();
+                        match engine.transcribe(&audio_16k, &model_path) {
+                            Ok(text) if !text.is_empty() => {
+                                let _ = event_tx.send(WorkerEvent::LiveTranscript { text });
+                            }
+                            Ok(_) => {}
+                            Err(e) => {
+                                // Live pass failures are non-fatal; report once
+                                let _ = event_tx.send(WorkerEvent::Error {
+                                    message: format!("live transcription: {:#}", e),
+                                });
+                            }
+                        }
+                        last_live_end_samples = buffer.lock().unwrap().samples.len();
+                    }
+                }
+                continue;
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        };
         match command {
-            WorkerCommand::StartRecording => {
-                if active_stream.is_some() {
+            WorkerCommand::StartRecording {
+                mode,
+                loopback_device,
+            } => {
+                if !active_streams.is_empty() {
                     let _ = event_tx.send(WorkerEvent::Error {
                         message: "already recording".to_string(),
                     });
@@ -345,7 +593,96 @@ fn worker_loop(
                                 message: format!("failed to start capture: {}", e),
                             });
                         } else {
-                            active_stream = Some(new_stream);
+                            active_streams.push(new_stream);
+                            last_live_end_samples = buffer.lock().unwrap().samples.len();
+
+                            // Call mode with a loopback device: open a second
+                            // stream so remote call audio is captured too.
+                            // Both streams push into the same buffer; the
+                            // mixer interleaves at convert time.
+                            // Call mode: try native system-audio capture first
+                            // (macOS tap / Linux monitor). Fall back to the
+                            // configured loopback device, then mic-only.
+                            let mut system_capture_handle: Option<
+                                crate::system_audio::SystemAudioCapture,
+                            > = None;
+                            if mode == crate::config::AiMode::Call {
+                                let push = Arc::clone(&buffer_push_f32);
+                                let rate_cell = Arc::new(Mutex::new(0u32));
+                                match crate::system_audio::SystemAudioCapture::start(
+                                    push,
+                                    Arc::clone(&rate_cell),
+                                ) {
+                                    Ok((capture, rate, method)) => {
+                                        system_capture_handle = Some(capture);
+                                        let _ = event_tx.send(WorkerEvent::Error {
+                                            message: format!(
+                                                "system audio capture active via {} ({} Hz)",
+                                                method.label(),
+                                                rate
+                                            ),
+                                        });
+                                    }
+                                    Err(e) => {
+                                        let _ = event_tx.send(WorkerEvent::Error {
+                                            message: format!(
+                                                "system audio unavailable, falling back: {:#}",
+                                                e
+                                            ),
+                                        });
+                                    }
+                                }
+                            }
+                            system_capture = system_capture_handle;
+
+                            if mode == crate::config::AiMode::Call
+                                && system_capture.is_none()
+                                && !loopback_device.trim().is_empty()
+                            {
+                                match select_input_device(&host, &loopback_device) {
+                                    Ok((l_dev, l_cfg, _l_name)) => {
+                                        let l_config: cpal::StreamConfig = l_cfg.into();
+                                        let l_buf = Arc::clone(&buffer);
+                                        match l_dev.build_input_stream(
+                                            &l_config,
+                                            move |data: &[f32], _| {
+                                                if let Ok(mut b) = l_buf.lock() {
+                                                    b.push(data);
+                                                }
+                                            },
+                                            |err| eprintln!("loopback stream error: {}", err),
+                                            None,
+                                        ) {
+                                            Ok(l_stream) => {
+                                                if let Err(e) = l_stream.play() {
+                                                    let _ = event_tx.send(WorkerEvent::Error {
+                                                        message: format!(
+                                                            "loopback capture failed: {}",
+                                                            e
+                                                        ),
+                                                    });
+                                                } else {
+                                                    active_streams.push(l_stream);
+                                                }
+                                            }
+                                            Err(e) => {
+                                                let _ = event_tx.send(WorkerEvent::Error {
+                                                    message: format!(
+                                                        "loopback stream build failed: {}",
+                                                        e
+                                                    ),
+                                                });
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        let _ = event_tx.send(WorkerEvent::Error {
+                                            message: format!("loopback device not found: {:#}", e),
+                                        });
+                                    }
+                                }
+                            }
+
                             let _ = event_tx.send(WorkerEvent::RecordingStarted);
                         }
                     }
@@ -357,18 +694,23 @@ fn worker_loop(
                 }
             }
             WorkerCommand::StopRecording => {
-                if active_stream.is_none() {
+                if active_streams.is_empty() {
                     let _ = event_tx.send(WorkerEvent::Error {
                         message: "not recording".to_string(),
                     });
                     continue;
                 }
-                // Drop the stream first so no more samples arrive mid-convert
-                active_stream = None;
+                // Drop all streams (mic + loopback) so no more samples
+                // arrive mid-convert, then stop native system capture
+                active_streams.clear();
+                if let Some(cap) = system_capture.take() {
+                    drop(cap);
+                }
                 let seconds = buffer.lock().unwrap().seconds();
                 let _ = event_tx.send(WorkerEvent::RecordingStopped { seconds });
             }
             WorkerCommand::TranscribeAndSynthesize {
+                mode,
                 endpoint,
                 kind,
                 api_key,
@@ -394,10 +736,10 @@ fn worker_loop(
                 }
 
                 let model_path = engine.model_path.clone();
-                match engine.transcribe(&audio, &model_path) {
-                    Ok(transcript) => {
+                match engine.transcribe_with_turns(&audio, &model_path) {
+                    Ok((transcript, turns)) => {
                         let _ = event_tx.send(WorkerEvent::Transcribed {
-                            text: transcript.clone(),
+                            text: turns.clone(),
                         });
                         if transcript.is_empty() {
                             let _ = event_tx.send(WorkerEvent::Error {
@@ -414,7 +756,7 @@ fn worker_loop(
                         };
                         match ai_client::synthesize(&provider, &prompt, &transcript) {
                             Ok(markdown) => {
-                                let _ = event_tx.send(WorkerEvent::Synthesized { markdown });
+                                let _ = event_tx.send(WorkerEvent::Synthesized { mode, markdown });
                             }
                             Err(e) => {
                                 let _ = event_tx.send(WorkerEvent::Error {
@@ -443,6 +785,90 @@ fn worker_loop(
                         let _ = event_tx.send(WorkerEvent::Error {
                             message: format!("model download failed: {:#}", e),
                         });
+                    }
+                }
+            }
+            WorkerCommand::FetchModels {
+                endpoint,
+                kind,
+                api_key,
+            } => {
+                let provider = crate::config::AiProviderConfig {
+                    name: String::new(),
+                    kind,
+                    endpoint,
+                    api_key,
+                    model: String::new(),
+                };
+                match ai_client::fetch_models_resolved(&provider) {
+                    Ok((models, resolved)) => {
+                        if resolved != provider.endpoint {
+                            let _ = event_tx.send(WorkerEvent::EndpointResolved {
+                                requested: provider.endpoint.clone(),
+                                resolved: resolved.clone(),
+                            });
+                        }
+                        let _ = event_tx.send(WorkerEvent::ModelsFetched {
+                            endpoint: resolved,
+                            models,
+                        });
+                    }
+                    Err(e) => {
+                        let _ = event_tx.send(WorkerEvent::Error {
+                            message: format!("model list failed: {:#}", e),
+                        });
+                    }
+                }
+            }
+            WorkerCommand::TestEndpoint {
+                endpoint,
+                kind,
+                api_key,
+            } => {
+                let provider = crate::config::AiProviderConfig {
+                    name: String::new(),
+                    kind,
+                    endpoint,
+                    api_key,
+                    model: String::new(),
+                };
+                match ai_client::fetch_models_resolved(&provider) {
+                    Ok((models, resolved)) => {
+                        let _ = event_tx.send(WorkerEvent::EndpointTested {
+                            endpoint: resolved.clone(),
+                            ok: true,
+                            detail: format!("{} models available", models.len()),
+                        });
+                        if resolved != provider.endpoint {
+                            let _ = event_tx.send(WorkerEvent::EndpointResolved {
+                                requested: provider.endpoint.clone(),
+                                resolved: resolved.clone(),
+                            });
+                        }
+                        let _ = event_tx.send(WorkerEvent::ModelsFetched {
+                            endpoint: resolved,
+                            models,
+                        });
+                    }
+                    Err(e) => {
+                        let _ = event_tx.send(WorkerEvent::EndpointTested {
+                            endpoint: provider.endpoint,
+                            ok: false,
+                            detail: format!("{:#}", e),
+                        });
+                    }
+                }
+            }
+            WorkerCommand::SetLiveTranscription {
+                enabled,
+                model_path,
+            } => {
+                live_transcription = enabled;
+                if enabled {
+                    // Warm the model so the first live pass isn't slow
+                    let path = engine.model_path.clone();
+                    if !path.is_empty() {
+                        let _ = engine.ensure_loaded(&model_path);
                     }
                 }
             }
@@ -508,9 +934,13 @@ mod tests {
         // Protocol smoke: constructing every variant stays possible
         // (catch-all UI arms must keep compiling as variants grow).
         let commands = vec![
-            WorkerCommand::StartRecording,
+            WorkerCommand::StartRecording {
+                mode: crate::config::AiMode::Thoughts,
+                loopback_device: String::new(),
+            },
             WorkerCommand::StopRecording,
             WorkerCommand::TranscribeAndSynthesize {
+                mode: crate::config::AiMode::Thoughts,
                 endpoint: "http://localhost:11434/v1".to_string(),
                 kind: EndpointKind::OpenAiCompatible,
                 api_key: String::new(),
@@ -528,21 +958,38 @@ mod tests {
         let events = vec![
             WorkerEvent::RecordingStarted,
             WorkerEvent::RecordingStopped { seconds: 1.0 },
+            WorkerEvent::LiveTranscript {
+                text: "l".to_string(),
+            },
             WorkerEvent::ModelDownloadProgress { percent: 50.0 },
             WorkerEvent::ModelDownloadDone {
                 path: "/tmp/m.bin".to_string(),
+            },
+            WorkerEvent::ModelsFetched {
+                endpoint: "http://x".to_string(),
+                models: vec![],
+            },
+            WorkerEvent::EndpointTested {
+                endpoint: "http://x".to_string(),
+                ok: true,
+                detail: String::new(),
+            },
+            WorkerEvent::EndpointResolved {
+                requested: "http://x".to_string(),
+                resolved: "http://x/v1".to_string(),
             },
             WorkerEvent::Transcribed {
                 text: "t".to_string(),
             },
             WorkerEvent::Synthesized {
+                mode: crate::config::AiMode::Call,
                 markdown: "m".to_string(),
             },
             WorkerEvent::Error {
                 message: "e".to_string(),
             },
         ];
-        assert_eq!(events.len(), 7);
+        assert_eq!(events.len(), 11);
     }
 
     #[test]
@@ -569,5 +1016,32 @@ mod tests {
         let err = engine.transcribe(&[0.0f32; 100], "/nonexistent/model.bin");
         let msg = err.unwrap_err().to_string();
         assert!(msg.contains("Whisper model not found"));
+    }
+
+    #[test]
+    fn test_fmt_ts() {
+        assert_eq!(fmt_ts(0), "[00:00]");
+        assert_eq!(fmt_ts(6_500), "[01:05]");
+        assert_eq!(fmt_ts(60_000), "[10:00]");
+        assert_eq!(fmt_ts(3_723_00), "[62:03]");
+    }
+
+    #[test]
+    fn test_is_new_turn() {
+        // First segment always starts a turn
+        assert!(is_new_turn(None, 0));
+        // Small gap (< 0.9s = 90cs): same turn
+        assert!(!is_new_turn(Some(1_000), 1_050));
+        // Exactly the threshold: same turn (strictly greater breaks)
+        assert!(!is_new_turn(Some(1_000), 1_090));
+        // Gap of 1s: new turn
+        assert!(is_new_turn(Some(1_000), 1_100));
+        // Clock skew (negative gap): saturates to 0, same turn
+        assert!(!is_new_turn(Some(2_000), 1_900));
+    }
+
+    #[test]
+    fn test_turn_gap_threshold_value() {
+        assert_eq!(TURN_GAP_CENTISECONDS, 90); // 0.9 seconds
     }
 }
