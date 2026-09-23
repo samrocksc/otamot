@@ -13,6 +13,12 @@ pub struct Sidebar<'a> {
     pub sessions_completed: u32,
     pub t: &'a T,
     pub config: &'a mut crate::config::Config,
+    pub ai_recording: bool,
+    pub ai_busy: bool,
+}
+
+pub enum SidebarAction {
+    ToggleAiRecording,
 }
 
 impl<'a> Sidebar<'a> {
@@ -22,7 +28,8 @@ impl<'a> Sidebar<'a> {
         button_color: egui::Color32,
         button_text_color: egui::Color32,
         text_dim_color: egui::Color32,
-    ) {
+    ) -> Option<SidebarAction> {
+        let mut action_out: Option<SidebarAction> = None;
         ui.vertical(|ui| {
             // Consistent spacing at top
             ui.add_space(8.0);
@@ -124,6 +131,25 @@ impl<'a> Sidebar<'a> {
                     let _ = self.config.save();
                 }
 
+                // AI Notes record toggle — only when the feature is enabled
+                if self.config.ai_notes_enabled {
+                    ui.add_space(8.0);
+                    let (ai_label, action) = if self.ai_recording {
+                        ("● RECORDING: STOP", Some(SidebarAction::ToggleAiRecording))
+                    } else if self.ai_busy {
+                        ("AI: WORKING…", None)
+                    } else {
+                        ("RECORD THOUGHTS", Some(SidebarAction::ToggleAiRecording))
+                    };
+                    if ui_components::sidebar_button(ui, ai_label, button_text_color, button_color)
+                        .clicked()
+                    {
+                        if let Some(a) = action {
+                            action_out = Some(a);
+                        }
+                    }
+                }
+
                 // Divider - horizontal line matching button width
                 ui.add_space(12.0);
                 ui.horizontal(|ui| {
@@ -154,5 +180,6 @@ impl<'a> Sidebar<'a> {
                 );
             }
         });
+        action_out
     }
 }

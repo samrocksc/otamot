@@ -1,6 +1,8 @@
 // Otamot - A cross-platform Pomodoro timer
 // This lib.rs exposes modules for testing
 
+pub mod ai_client;
+pub mod audio_ai;
 pub mod bell;
 pub mod commands;
 pub mod config;

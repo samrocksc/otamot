@@ -3,6 +3,7 @@ use eframe::egui;
 use std::time::{Duration, Instant};
 
 // otamot library imports
+use otamot::audio_ai::{AudioAiWorker, WorkerCommand, WorkerEvent};
 use otamot::bell::Bell;
 use otamot::commands::CommandManager;
 use otamot::config::{Config, Language, NotesView, Theme};
@@ -110,6 +111,24 @@ pub struct PomodoroApp {
     // Active listening notification state
     active_listening_next_notification: Option<Instant>,
     active_listening_message_index: usize,
+
+    // Audio AI notes (toggleable feature)
+    ai_worker: Option<AudioAiWorker>,
+    ai_event_rx: Option<std::sync::mpsc::Receiver<WorkerEvent>>,
+    ai_recording: bool,
+    ai_busy: bool,
+    ai_status: Option<AiStatus>,
+    ai_model_download_progress: Option<f32>,
+}
+
+/// Transient status shown under the timer while the AI pipeline runs.
+#[derive(Debug, Clone, PartialEq)]
+enum AiStatus {
+    Recording,
+    Transcribing,
+    Synthesizing,
+    Done(String),
+    Failed(String),
 }
 
 /// Returns the tray label for the survey score.
@@ -120,6 +139,14 @@ fn format_tray_score(average_focus: f64, focus_count: u32) -> String {
     } else {
         format!("Survey Score: {:.1}", average_focus)
     }
+}
+
+/// Directory portion of a whisper model path (models live beside the file).
+fn model_dir_from_path(path: &str) -> String {
+    std::path::Path::new(path)
+        .parent()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|| ".".to_string())
 }
 
 /// Returns the tray label for total sessions completed.
@@ -251,6 +278,13 @@ impl PomodoroApp {
             active_listening_next_notification: None,
             active_listening_message_index: 0,
 
+            ai_worker: None,
+            ai_event_rx: None,
+            ai_recording: false,
+            ai_busy: false,
+            ai_status: None,
+            ai_model_download_progress: None,
+
             sessions_completed: survey_data.sessions_completed,
             show_survey: false,
             show_survey_summary: false,
@@ -299,8 +333,14 @@ impl PomodoroApp {
             sessions_completed: self.sessions_completed,
             t: &self.t,
             config: &mut self.config,
+            ai_recording: self.ai_recording,
+            ai_busy: self.ai_busy,
         };
-        sidebar.show(ui, button_color, button_text_color, text_dim_color);
+        if let Some(otamot::ui::sidebar::SidebarAction::ToggleAiRecording) =
+            sidebar.show(ui, button_color, button_text_color, text_dim_color)
+        {
+            self.toggle_ai_recording();
+        }
     }
 
     fn render_timer(
@@ -396,6 +436,160 @@ impl PomodoroApp {
         // Save call notes if there's content
         if self.notes_enabled && !self.notes_content.is_empty() && duration > 0 {
             self.save_call_notes(duration);
+        }
+    }
+
+    /// Spawn the AI worker lazily on first use so the feature toggle
+    /// fully controls mic access and thread existence.
+    fn ensure_ai_worker(&mut self) -> Result<(), String> {
+        if self.ai_worker.is_some() {
+            return Ok(());
+        }
+        match AudioAiWorker::spawn(
+            self.config.max_recording_minutes,
+            self.config.whisper_model_path.clone(),
+        ) {
+            Ok(worker) => {
+                self.ai_event_rx = worker.take_event_receiver();
+                self.ai_worker = Some(worker);
+                Ok(())
+            }
+            Err(e) => Err(format!("{:#}", e)),
+        }
+    }
+
+    fn toggle_ai_recording(&mut self) {
+        if self.ai_recording {
+            // Stopping: hand the buffer over for transcription + synthesis
+            if let Some(worker) = &self.ai_worker {
+                if let Some(provider) = self.config.active_ai_provider().cloned() {
+                    worker.send(WorkerCommand::StopRecording);
+                    worker.send(WorkerCommand::TranscribeAndSynthesize {
+                        endpoint: provider.endpoint.clone(),
+                        kind: provider.kind,
+                        api_key: provider.api_key.clone(),
+                        model: provider.model.clone(),
+                        prompt: self.config.synthesis_prompt.clone(),
+                    });
+                    self.ai_recording = false;
+                    self.ai_busy = true;
+                    self.ai_status = Some(AiStatus::Transcribing);
+                } else {
+                    self.ai_status =
+                        Some(AiStatus::Failed("no AI provider configured".to_string()));
+                }
+            }
+        } else {
+            match self.ensure_ai_worker() {
+                Ok(()) => {
+                    if let Some(worker) = &self.ai_worker {
+                        worker.send(WorkerCommand::StartRecording);
+                        self.ai_recording = true;
+                        self.ai_status = Some(AiStatus::Recording);
+                    }
+                }
+                Err(message) => {
+                    self.ai_status = Some(AiStatus::Failed(message));
+                }
+            }
+        }
+    }
+
+    fn download_whisper_model(&mut self) {
+        match self.ensure_ai_worker() {
+            Ok(()) => {
+                if let Some(worker) = &self.ai_worker {
+                    worker.send(WorkerCommand::DownloadModel {
+                        size: self.config.whisper_model_size,
+                        target_dir: model_dir_from_path(&self.config.whisper_model_path),
+                    });
+                    self.ai_model_download_progress = Some(0.0);
+                }
+            }
+            Err(message) => {
+                self.ai_status = Some(AiStatus::Failed(message));
+            }
+        }
+    }
+
+    /// Drain worker events without blocking. Called every frame.
+    fn poll_ai_events(&mut self, ctx: &egui::Context) {
+        let Some(rx) = self.ai_event_rx.take() else {
+            return;
+        };
+        let mut repaint = false;
+        loop {
+            match rx.try_recv() {
+                Ok(event) => {
+                    repaint = true;
+                    match event {
+                        WorkerEvent::RecordingStarted => {
+                            self.ai_status = Some(AiStatus::Recording);
+                        }
+                        WorkerEvent::RecordingStopped { .. } => {}
+                        WorkerEvent::ModelDownloadProgress { percent } => {
+                            self.ai_model_download_progress = Some(percent);
+                        }
+                        WorkerEvent::ModelDownloadDone { path } => {
+                            self.config.whisper_model_path = path;
+                            self.ai_model_download_progress = None;
+                            let _ = self.config.save();
+                        }
+                        WorkerEvent::Transcribed { .. } => {
+                            self.ai_status = Some(AiStatus::Synthesizing);
+                        }
+                        WorkerEvent::Synthesized { markdown } => {
+                            self.deliver_synthesis(&markdown);
+                            self.ai_busy = false;
+                            self.ai_status = Some(AiStatus::Done(markdown));
+                        }
+                        WorkerEvent::Error { message } => {
+                            self.ai_busy = false;
+                            self.ai_status = Some(AiStatus::Failed(message));
+                        }
+                    }
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {
+                    self.ai_event_rx = Some(rx);
+                    break;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.ai_event_rx = None;
+                    break;
+                }
+            }
+        }
+        if repaint {
+            ctx.request_repaint();
+        }
+    }
+
+    /// Delivery target for synthesized Markdown. One function so a future
+    /// change (separate file, call notes, kanban) touches only this.
+    fn deliver_synthesis(&mut self, markdown: &str) {
+        let timestamp = Local::now().format("%Y-%m-%d %H:%M");
+        let block = format!(
+            "\n## Voice Notes — {}\n\n{}\n\n",
+            timestamp,
+            markdown.trim()
+        );
+        self.notes_content.push_str(&block);
+        let _ = notes::save_draft(&self.config.notes_directory, &self.notes_content);
+    }
+
+    /// Status line text for the current AI pipeline state.
+    fn ai_status_text(&self) -> Option<(String, egui::Color32)> {
+        let theme = &self.config.theme;
+        let text_color = egui::Color32::from_rgb(theme.text.r, theme.text.g, theme.text.b);
+        let dim = egui::Color32::from_rgb(theme.text_dim.r, theme.text_dim.g, theme.text_dim.b);
+        let error = egui::Color32::from_rgb(0xe7, 0x4c, 0x3c);
+        match &self.ai_status {
+            Some(AiStatus::Recording) => Some(("● Recording thoughts…".to_string(), error)),
+            Some(AiStatus::Transcribing) => Some(("Transcribing…".to_string(), dim)),
+            Some(AiStatus::Synthesizing) => Some(("Synthesizing notes…".to_string(), dim)),
+            Some(AiStatus::Done(_)) => Some(("Voice notes added ✓".to_string(), text_color)),
+            Some(AiStatus::Failed(message)) => Some((format!("AI error: {}", message), error)),
+            None => None,
         }
     }
 
@@ -817,12 +1011,17 @@ impl eframe::App for PomodoroApp {
         // Essential state updates
         self.tick();
 
+        // Drain AI worker events (non-blocking)
+        if self.config.ai_notes_enabled {
+            self.poll_ai_events(ctx);
+        }
+
         // Auto-save notes draft if they've changed
         if self.notes_enabled && !self.notes_content.is_empty() {
             let _ = notes::save_draft(&self.config.notes_directory, &self.notes_content);
         }
 
-        if self.is_running || self.call_state.is_active {
+        if self.is_running || self.call_state.is_active || self.ai_busy || self.ai_recording {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
 
@@ -1372,6 +1571,10 @@ impl PomodoroApp {
         call_color: egui::Color32,
         bg_color: egui::Color32,
     ) {
+        let text_dim = {
+            let theme = &self.config.theme;
+            egui::Color32::from_rgb(theme.text_dim.r, theme.text_dim.g, theme.text_dim.b)
+        };
         // Render Timer at the top of the right column
         self.render_timer(
             ui,
@@ -1381,6 +1584,26 @@ impl PomodoroApp {
             break_color,
             call_color,
         );
+
+        // AI status line (only when the feature produced something to show)
+        if self.config.ai_notes_enabled {
+            if let Some((status_text, color)) = self.ai_status_text() {
+                ui.horizontal(|ui| {
+                    ui.add_space(10.0);
+                    ui.label(egui::RichText::new(status_text).size(13.0).color(color));
+                });
+            }
+            if let Some(progress) = self.ai_model_download_progress {
+                ui.horizontal(|ui| {
+                    ui.add_space(10.0);
+                    ui.label(
+                        egui::RichText::new(format!("Downloading model: {:.0}%", progress))
+                            .size(13.0)
+                            .color(text_dim),
+                    );
+                });
+            }
+        }
 
         // Render notes section if enabled
         if self.notes_enabled {
@@ -2010,6 +2233,286 @@ impl PomodoroApp {
                                 });
                             if self.config.language != current_lang {
                                 self.t = T::new(self.config.language);
+                                let _ = self.config.save();
+                            }
+                        });
+                        ui.add_space(20.0);
+
+                        // ============ Audio AI Notes section ============
+                        // (toggleable feature — section only when enabled)
+                        if self.config.ai_notes_enabled {
+                            ui.separator();
+                            ui.add_space(10.0);
+                            ui.label(
+                                egui::RichText::new("🎙 Voice Notes AI")
+                                    .size(20.0)
+                                    .color(text_color)
+                                    .strong(),
+                            );
+                            ui.add_space(10.0);
+
+                            // Whisper model size + download
+                            ui.horizontal(|ui| {
+                                ui.add_space(40.0);
+                                ui.label(
+                                    egui::RichText::new("Whisper model")
+                                        .size(16.0)
+                                        .color(text_dim_color),
+                                );
+                                let current_size = self.config.whisper_model_size;
+                                egui::ComboBox::from_id_salt("whisper_size_selector")
+                                    .selected_text(self.config.whisper_model_size.label())
+                                    .show_ui(ui, |ui| {
+                                        for size in otamot::config::WhisperSize::all() {
+                                            ui.selectable_value(
+                                                &mut self.config.whisper_model_size,
+                                                size,
+                                                size.label(),
+                                            );
+                                        }
+                                    });
+                                if self.config.whisper_model_size != current_size {
+                                    // Point the model path at the newly chosen size
+                                    let dir = model_dir_from_path(&self.config.whisper_model_path);
+                                    self.config.whisper_model_path = std::path::Path::new(&dir)
+                                        .join(self.config.whisper_model_size.file_name())
+                                        .to_string_lossy()
+                                        .into_owned();
+                                    let _ = self.config.save();
+                                }
+                                let downloading = self.ai_model_download_progress.is_some();
+                                let dl_label = if downloading {
+                                    "Downloading…"
+                                } else {
+                                    "Download model"
+                                };
+                                if ui_components::small_rounded_button(
+                                    ui,
+                                    dl_label,
+                                    button_text_color,
+                                    button_color,
+                                )
+                                .clicked()
+                                    && !downloading
+                                {
+                                    self.download_whisper_model();
+                                }
+                            });
+                            ui.horizontal(|ui| {
+                                ui.add_space(40.0);
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "Model file: {}",
+                                        self.config.whisper_model_path
+                                    ))
+                                    .size(12.0)
+                                    .color(text_dim_color),
+                                );
+                            });
+                            if let Some(progress) = self.ai_model_download_progress {
+                                ui.horizontal(|ui| {
+                                    ui.add_space(40.0);
+                                    ui.add(
+                                        egui::ProgressBar::new(progress / 100.0)
+                                            .show_percentage()
+                                            .desired_width(350.0),
+                                    );
+                                });
+                            }
+                            ui.add_space(15.0);
+
+                            // Provider profiles
+                            ui.horizontal(|ui| {
+                                ui.add_space(40.0);
+                                ui.label(
+                                    egui::RichText::new("AI Providers")
+                                        .size(18.0)
+                                        .color(text_dim_color),
+                                );
+                            });
+                            let mut provider_changed = false;
+                            let mut remove_index: Option<usize> = None;
+                            for (idx, provider) in self.config.ai_providers.iter_mut().enumerate() {
+                                ui.add_space(8.0);
+                                ui.horizontal(|ui| {
+                                    ui.add_space(40.0);
+                                    // Active provider radio
+                                    let is_active = self.config.active_ai_provider == provider.name;
+                                    if ui.radio(is_active, "").clicked()
+                                        && !provider.name.is_empty()
+                                    {
+                                        self.config.active_ai_provider = provider.name.clone();
+                                        provider_changed = true;
+                                    }
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut provider.name)
+                                            .desired_width(120.0)
+                                            .hint_text("name"),
+                                    );
+                                    let old_kind = provider.kind;
+                                    egui::ComboBox::from_id_salt(format!("kind_{}", idx))
+                                        .selected_text(provider.kind.label())
+                                        .show_ui(ui, |ui| {
+                                            ui.selectable_value(
+                                                &mut provider.kind,
+                                                otamot::config::EndpointKind::OpenAiCompatible,
+                                                "OpenAI-compatible",
+                                            );
+                                            ui.selectable_value(
+                                                &mut provider.kind,
+                                                otamot::config::EndpointKind::Anthropic,
+                                                "Anthropic",
+                                            );
+                                        });
+                                    if provider.kind != old_kind {
+                                        provider_changed = true;
+                                    }
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.add_space(40.0);
+                                    let old_endpoint = provider.endpoint.clone();
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut provider.endpoint)
+                                            .desired_width(220.0)
+                                            .hint_text("http://localhost:11434/v1"),
+                                    );
+                                    if provider.endpoint != old_endpoint {
+                                        provider_changed = true;
+                                    }
+                                    let old_key = provider.api_key.clone();
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut provider.api_key)
+                                            .desired_width(120.0)
+                                            .password(true)
+                                            .hint_text("api key"),
+                                    );
+                                    if provider.api_key != old_key {
+                                        provider_changed = true;
+                                    }
+                                    let old_model = provider.model.clone();
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut provider.model)
+                                            .desired_width(110.0)
+                                            .hint_text("model"),
+                                    );
+                                    if provider.model != old_model {
+                                        provider_changed = true;
+                                    }
+                                    if ui.small_button("✕").clicked() {
+                                        remove_index = Some(idx);
+                                        provider_changed = true;
+                                    }
+                                });
+                            }
+                            if let Some(idx) = remove_index {
+                                if self.config.ai_providers.len() > 1 {
+                                    let removed = self.config.ai_providers.remove(idx);
+                                    if self.config.active_ai_provider == removed.name {
+                                        self.config.active_ai_provider = self
+                                            .config
+                                            .ai_providers
+                                            .first()
+                                            .map(|p| p.name.clone())
+                                            .unwrap_or_default();
+                                    }
+                                }
+                            }
+                            ui.add_space(8.0);
+                            ui.horizontal(|ui| {
+                                ui.add_space(40.0);
+                                if ui_components::small_rounded_button(
+                                    ui,
+                                    "+ Add provider",
+                                    button_text_color,
+                                    button_color,
+                                )
+                                .clicked()
+                                {
+                                    let n = self.config.ai_providers.len() + 1;
+                                    self.config.ai_providers.push(
+                                        otamot::config::AiProviderConfig {
+                                            name: format!("Provider {}", n),
+                                            ..Default::default()
+                                        },
+                                    );
+                                    provider_changed = true;
+                                }
+                            });
+                            if provider_changed {
+                                let _ = self.config.save();
+                            }
+                            ui.add_space(15.0);
+
+                            // Synthesis prompt editor
+                            ui.horizontal(|ui| {
+                                ui.add_space(40.0);
+                                ui.label(
+                                    egui::RichText::new("Synthesis prompt")
+                                        .size(16.0)
+                                        .color(text_dim_color),
+                                );
+                            });
+                            ui.horizontal(|ui| {
+                                ui.add_space(40.0);
+                                let old_prompt = self.config.synthesis_prompt.clone();
+                                ui.add(
+                                    egui::TextEdit::multiline(&mut self.config.synthesis_prompt)
+                                        .desired_width(430.0)
+                                        .desired_rows(4),
+                                );
+                                if self.config.synthesis_prompt != old_prompt {
+                                    let _ = self.config.save();
+                                }
+                            });
+                            ui.add_space(15.0);
+
+                            // Recording cap
+                            ui.horizontal(|ui| {
+                                ui.add_space(40.0);
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "Max recording: {} min",
+                                        self.config.max_recording_minutes
+                                    ))
+                                    .size(16.0)
+                                    .color(text_dim_color),
+                                );
+                                let old_cap = self.config.max_recording_minutes;
+                                ui.add(
+                                    egui::Slider::new(
+                                        &mut self.config.max_recording_minutes,
+                                        5..=120,
+                                    )
+                                    .show_value(false),
+                                );
+                                if self.config.max_recording_minutes != old_cap {
+                                    let _ = self.config.save();
+                                }
+                            });
+                            ui.add_space(20.0);
+                        }
+
+                        // AI notes feature toggle (always visible so it can be turned on)
+                        ui.horizontal(|ui| {
+                            ui.add_space(40.0);
+                            let ai_label = if self.config.ai_notes_enabled {
+                                "🎙 Voice Notes AI: ON"
+                            } else {
+                                "🎙 Voice Notes AI: OFF"
+                            };
+                            if ui_components::rounded_button(
+                                ui,
+                                ai_label,
+                                button_text_color,
+                                button_color,
+                            )
+                            .clicked()
+                            {
+                                self.config.ai_notes_enabled = !self.config.ai_notes_enabled;
+                                // Stopping the feature also stops any active recording
+                                if !self.config.ai_notes_enabled && self.ai_recording {
+                                    self.toggle_ai_recording();
+                                }
                                 let _ = self.config.save();
                             }
                         });

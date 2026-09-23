@@ -149,7 +149,7 @@ impl Theme {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default = "default_work_duration")]
     pub work_duration: u32,
@@ -181,6 +181,21 @@ pub struct Config {
     pub bell_tune: BellTune,
     #[serde(default)]
     pub theme: Theme,
+    // Audio AI notes feature — toggleable, off by default
+    #[serde(default)]
+    pub ai_notes_enabled: bool,
+    #[serde(default = "default_ai_providers")]
+    pub ai_providers: Vec<AiProviderConfig>,
+    #[serde(default = "default_active_ai_provider")]
+    pub active_ai_provider: String,
+    #[serde(default = "default_whisper_model_path")]
+    pub whisper_model_path: String,
+    #[serde(default)]
+    pub whisper_model_size: WhisperSize,
+    #[serde(default = "default_synthesis_prompt")]
+    pub synthesis_prompt: String,
+    #[serde(default = "default_max_recording_minutes")]
+    pub max_recording_minutes: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -194,6 +209,121 @@ impl Default for BellTune {
     fn default() -> Self {
         Self::Default
     }
+}
+
+/// The wire protocol an AI provider endpoint speaks.
+/// New endpoint shapes are added as new variants here.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EndpointKind {
+    /// OpenAI-compatible /chat/completions with Bearer auth
+    /// (OpenAI, Ollama /v1, llama.cpp server, vLLM, ...)
+    #[default]
+    OpenAiCompatible,
+    /// Anthropic /v1/messages with x-api-key auth
+    Anthropic,
+}
+
+impl EndpointKind {
+    pub fn label(&self) -> &'static str {
+        match self {
+            EndpointKind::OpenAiCompatible => "OpenAI-compatible",
+            EndpointKind::Anthropic => "Anthropic",
+        }
+    }
+}
+
+/// Whisper model size for the download helper
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WhisperSize {
+    Tiny,
+    #[default]
+    Base,
+    Small,
+    Medium,
+}
+
+impl WhisperSize {
+    pub fn file_name(&self) -> &'static str {
+        match self {
+            WhisperSize::Tiny => "ggml-tiny.bin",
+            WhisperSize::Base => "ggml-base.bin",
+            WhisperSize::Small => "ggml-small.bin",
+            WhisperSize::Medium => "ggml-medium.bin",
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            WhisperSize::Tiny => "Tiny (~75 MB)",
+            WhisperSize::Base => "Base (~142 MB)",
+            WhisperSize::Small => "Small (~466 MB)",
+            WhisperSize::Medium => "Medium (~1.5 GB)",
+        }
+    }
+
+    pub fn all() -> [WhisperSize; 4] {
+        [
+            WhisperSize::Tiny,
+            WhisperSize::Base,
+            WhisperSize::Small,
+            WhisperSize::Medium,
+        ]
+    }
+}
+
+/// A single AI provider profile. Providers are data: adding a new
+/// endpoint shape means a new EndpointKind variant + request/parse fns,
+/// never a restructure.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AiProviderConfig {
+    pub name: String,
+    #[serde(default)]
+    pub kind: EndpointKind,
+    pub endpoint: String,
+    #[serde(default)]
+    pub api_key: String,
+    pub model: String,
+}
+
+impl Default for AiProviderConfig {
+    fn default() -> Self {
+        Self {
+            name: "Ollama local".to_string(),
+            kind: EndpointKind::OpenAiCompatible,
+            endpoint: "http://localhost:11434/v1".to_string(),
+            api_key: String::new(),
+            model: "llama3.2".to_string(),
+        }
+    }
+}
+
+fn default_ai_providers() -> Vec<AiProviderConfig> {
+    vec![AiProviderConfig::default()]
+}
+
+fn default_active_ai_provider() -> String {
+    "Ollama local".to_string()
+}
+
+fn default_whisper_model_path() -> String {
+    format!(
+        "{}/.config/otamot/models/ggml-base.bin",
+        std::env::var("HOME").unwrap_or_else(|_| ".".to_string())
+    )
+}
+
+fn default_synthesis_prompt() -> String {
+    "You are a note-taking assistant. Transform the raw transcript of a work \
+session into polished Markdown notes. Remove filler words and repetition. \
+Organize the content under these headings: '## Accomplishments' for what was \
+completed or progressed, '## Blockers' for obstacles encountered, and \
+'## Notes' for anything else worth keeping. Be concise and factual. \
+Reply with the Markdown snippet only, no preamble."
+        .to_string()
+}
+
+fn default_max_recording_minutes() -> u32 {
+    30
 }
 
 fn default_true() -> bool {
@@ -252,7 +382,26 @@ impl Default for Config {
             active_listening_enabled: false,
             bell_tune: BellTune::Default,
             theme: Theme::robotic_lime(),
+            ai_notes_enabled: false,
+            ai_providers: default_ai_providers(),
+            active_ai_provider: default_active_ai_provider(),
+            whisper_model_path: default_whisper_model_path(),
+            whisper_model_size: WhisperSize::default(),
+            synthesis_prompt: default_synthesis_prompt(),
+            max_recording_minutes: default_max_recording_minutes(),
         }
+    }
+}
+
+impl Config {
+    /// Find the active AI provider profile by name, falling back to the
+    /// first profile when the configured name is missing.
+    pub fn active_ai_provider(&self) -> Option<&AiProviderConfig> {
+        let active = &self.active_ai_provider;
+        self.ai_providers
+            .iter()
+            .find(|p| &p.name == active)
+            .or_else(|| self.ai_providers.first())
     }
 }
 
@@ -319,5 +468,77 @@ mod tests {
         assert_eq!(config.work_duration, 25);
         assert_eq!(config.break_duration, 5);
         assert!(!config.notes_enabled);
+    }
+
+    #[test]
+    fn test_ai_notes_disabled_by_default() {
+        let config = Config::default();
+        assert!(!config.ai_notes_enabled);
+        assert_eq!(config.ai_providers.len(), 1);
+        assert_eq!(config.active_ai_provider, "Ollama local");
+        assert_eq!(config.max_recording_minutes, 30);
+        assert!(!config.synthesis_prompt.is_empty());
+        assert_eq!(config.whisper_model_size, WhisperSize::Base);
+        assert!(config.whisper_model_path.ends_with("ggml-base.bin"));
+    }
+
+    #[test]
+    fn test_config_without_ai_fields_loads_with_defaults() {
+        // Backward compat: an old settings.json without ai_* keys
+        let old_json = r#"{
+            "work_duration": 30,
+            "break_duration": 7,
+            "notes_directory": "/tmp/notes",
+            "call_notes_directory": "/tmp/notes",
+            "todo_file": "/tmp/TODO.md"
+        }"#;
+        let config: Config = serde_json::from_str(old_json).unwrap();
+        assert_eq!(config.work_duration, 30);
+        assert!(!config.ai_notes_enabled);
+        assert_eq!(config.ai_providers.len(), 1);
+        assert_eq!(config.ai_providers[0].endpoint, "http://localhost:11434/v1");
+        assert_eq!(config.active_ai_provider(), Some(&config.ai_providers[0]));
+    }
+
+    #[test]
+    fn test_ai_providers_serde_roundtrip() {
+        let mut config = Config::default();
+        config.ai_notes_enabled = true;
+        config.ai_providers.push(AiProviderConfig {
+            name: "Claude".to_string(),
+            kind: EndpointKind::Anthropic,
+            endpoint: "https://api.anthropic.com/v1".to_string(),
+            api_key: "sk-test".to_string(),
+            model: "claude-sonnet-4".to_string(),
+        });
+        config.active_ai_provider = "Claude".to_string();
+        config.whisper_model_size = WhisperSize::Small;
+
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: Config = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, config);
+        assert_eq!(parsed.active_ai_provider(), Some(&config.ai_providers[1]));
+    }
+
+    #[test]
+    fn test_active_ai_provider_fallback() {
+        let mut config = Config::default();
+        config.active_ai_provider = "nonexistent".to_string();
+        assert_eq!(config.active_ai_provider(), Some(&config.ai_providers[0]));
+        config.ai_providers.clear();
+        assert!(config.active_ai_provider().is_none());
+    }
+
+    #[test]
+    fn test_endpoint_kind_labels() {
+        assert_eq!(EndpointKind::default().label(), "OpenAI-compatible");
+        assert_eq!(EndpointKind::Anthropic.label(), "Anthropic");
+    }
+
+    #[test]
+    fn test_whisper_sizes() {
+        assert_eq!(WhisperSize::Tiny.file_name(), "ggml-tiny.bin");
+        assert_eq!(WhisperSize::Medium.file_name(), "ggml-medium.bin");
+        assert_eq!(WhisperSize::all().len(), 4);
     }
 }
