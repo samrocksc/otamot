@@ -404,12 +404,18 @@ impl AudioAiWorker {
 
         // Fail fast: probe the default input device before spawning
         let host = cpal::default_host();
-        let default_device = host
-            .default_input_device()
-            .ok_or_else(|| anyhow!("no microphone input device found"))?;
-        let supported = default_device
-            .default_input_config()
-            .context("querying microphone config")?;
+        let default_device = host.default_input_device().ok_or_else(|| {
+            anyhow!(
+                "no microphone input device found — if this is a fresh install, \
+                 grant Otamot microphone access in System Settings > Privacy & \
+                 Security > Microphone, then restart the app"
+            )
+        })?;
+        let supported = default_device.default_input_config().context(
+            "querying microphone config — if this is a fresh install, grant \
+                 Otamot microphone access in System Settings > Privacy & Security \
+                 > Microphone, then restart the app",
+        )?;
 
         let probe = std::thread::spawn(move || {
             worker_loop(
@@ -688,7 +694,13 @@ fn worker_loop(
                     }
                     Err(e) => {
                         let _ = event_tx.send(WorkerEvent::Error {
-                            message: format!("failed to build capture stream: {}", e),
+                            message: format!(
+                                "failed to build capture stream: {} — if this is a \
+                                 fresh install, grant Otamot microphone access in \
+                                 System Settings > Privacy & Security > Microphone, \
+                                 then restart the app",
+                                e
+                            ),
                         });
                     }
                 }
